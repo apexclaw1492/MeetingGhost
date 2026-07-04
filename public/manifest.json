@@ -1,0 +1,16 @@
+{
+  "short_name": "MeetingGhost",
+  "name": "MeetingGhost - Private On-Device Meeting Recorder",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": "./",
+  "background_color": "#030712",
+  "theme_color": "#030712",
+  "display": "standalone",
+  "orientation": "portrait"
+}
