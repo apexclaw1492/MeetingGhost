@@ -1,41 +1,108 @@
 :root {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   color-scheme: dark;
-  --bg-color: #030712;
-  --panel-bg: rgba(17, 24, 39, 0.7);
-  --border-color: rgba(31, 41, 55, 0.8);
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --danger: #e11d48;
+  --bg-dark: #06070b;
+  --panel-bg: rgba(13, 16, 24, 0.75);
+  --panel-border: rgba(212, 175, 55, 0.22);
+  --gold-primary: #d4af37;
+  --gold-light: #fff3c4;
+  --gold-dark: #a67c1e;
+  --gold-gradient: linear-gradient(135deg, #fff3c4 0%, #d4af37 45%, #a67c1e 100%);
+  --gold-glow: rgba(212, 175, 55, 0.35);
+  --card-bg: linear-gradient(135deg, rgba(20, 24, 35, 0.9) 0%, rgba(10, 12, 18, 0.95) 100%);
 }
 
 body {
   margin: 0;
-  background-color: var(--bg-color);
+  background-color: var(--bg-dark);
   color: #f9fafb;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
-.glow-recording {
-  animation: pulseGlow 1.8s infinite ease-in-out;
+/* Metallic Gold Text */
+.text-gold-gradient {
+  background: var(--gold-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-@keyframes pulseGlow {
+/* Robinhood Gold Glassmorphic Panel */
+.gold-panel {
+  background: var(--panel-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.8), inset 0 1px 0 0 rgba(255, 243, 196, 0.1);
+}
+
+.gold-panel-interactive:hover {
+  border-color: rgba(212, 175, 55, 0.45);
+  box-shadow: 0 12px 35px -10px var(--gold-glow);
+}
+
+/* Metallic Gold Button */
+.btn-gold {
+  background: var(--gold-gradient);
+  color: #06070b;
+  font-weight: 700;
+  border: none;
+  box-shadow: 0 4px 20px rgba(212, 175, 55, 0.3);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-gold:hover {
+  transform: translateY(-1.5px) scale(1.02);
+  box-shadow: 0 6px 28px rgba(212, 175, 55, 0.5);
+}
+
+.btn-gold:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Pulsing Voice Recording Ring */
+.gold-record-ring {
+  position: relative;
+}
+
+.gold-record-ring::before,
+.gold-record-ring::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 2px solid var(--gold-primary);
+  opacity: 0;
+  animation: pulseGoldRing 2.4s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+.gold-record-ring::after {
+  animation-delay: 1.2s;
+}
+
+@keyframes pulseGoldRing {
   0% {
-    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.5);
-  }
-  70% {
-    box-shadow: 0 0 0 25px rgba(225, 29, 72, 0);
+    transform: scale(0.9);
+    opacity: 0.8;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0);
+    transform: scale(1.6);
+    opacity: 0;
   }
 }
 
-.line-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(10, 12, 18, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 175, 55, 0.6);
 }
