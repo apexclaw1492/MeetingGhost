@@ -1,10 +1,11 @@
 # MeetingGhost Gold — Roadmap
 
-## ✅ Completed (v1.0 - v4.0)
+## ✅ Completed (v1.0 - v4.1)
 - **v1.0 (Init):** Setup Vite + React + Capacitor project.
 - **v2.0 (Native Polish):** UI/UX foundations, brushed gold aesthetic, audio waveform visualization.
 - **v3.0 (On-Device AI Workers):** Web Worker architecture for Whisper (STT) and TinyLlama (Summarization).
 - **v4.0 (UX & Pro Audio):** iOS `100dvh` fixes, Floating Action Area, First-Time Onboarding UI, Audio File Import, Auto-Titling, PDF/Markdown Exports, and History Search.
+- **v4.1 (Reliability):** Workers re-warm automatically after reload (models cached but never re-initialized was a hard bug), in-flight init queuing in both workers, aggregated Whisper download progress, WebGPU capability detection surfaced in the Models tab, StrictMode double-save fix, stale-closure fix in `process()`.
 
 ## 🚀 Next Up: v5.0 (Organization & Intelligence)
 *See `TASKS.md` for specific tickets.*

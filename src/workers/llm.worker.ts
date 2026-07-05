@@ -1,6 +1,6 @@
 import { CreateMLCEngine } from "@mlc-ai/web-llm";
 
-let engine: any = null;
+let enginePromise: Promise<any> | null = null;
 
 self.onmessage = async (e: MessageEvent) => {
   const { type, text } = e.data;
@@ -9,16 +9,18 @@ self.onmessage = async (e: MessageEvent) => {
     if (type === 'init') {
       self.postMessage({ status: 'progress', progress: 0 });
       // We use a very small quantized model for mobile browser stability
-      engine = await CreateMLCEngine("TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC", {
+      enginePromise = CreateMLCEngine("TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC", {
         initProgressCallback: (info) => {
           self.postMessage({ status: 'progress', progress: Math.round(info.progress * 100) });
         }
       });
+      await enginePromise;
       self.postMessage({ status: 'ready' });
     }
 
     if (type === 'summarize') {
-      if (!engine) throw new Error('LLM Engine not initialized');
+      if (!enginePromise) throw new Error('LLM Engine not initialized');
+      const engine = await enginePromise;
       self.postMessage({ status: 'processing' });
       
       const reply = await engine.chat.completions.create({
@@ -32,7 +34,8 @@ self.onmessage = async (e: MessageEvent) => {
     }
 
     if (type === 'autoTitle') {
-      if (!engine) throw new Error('LLM Engine not initialized');
+      if (!enginePromise) throw new Error('LLM Engine not initialized');
+      const engine = await enginePromise;
       self.postMessage({ status: 'title_processing' });
       
       const reply = await engine.chat.completions.create({

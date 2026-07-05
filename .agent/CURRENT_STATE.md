@@ -2,7 +2,7 @@
 **Last Updated:** MeetingGhost Gold (v4.0)
 
 ## Tech Stack
-- **Framework:** React 18 (Vite)
+- **Framework:** React 19 (Vite)
 - **Styling:** Vanilla CSS (`App.css`)
 - **Native Bridge:** Capacitor (iOS, Android, Web)
 - **Icons:** `lucide-react`

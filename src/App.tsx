@@ -31,6 +31,9 @@ interface Model {
   progress: number;
 }
 
+/* WebGPU is required by the WebLLM summarizer; absent on most iOS/Android WebViews */
+const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+
 /* ─── App ─── */
 export function App() {
   const [hasOnboarded, setHasOnboarded] = useState(true);
@@ -70,19 +73,38 @@ export function App() {
 
   /* Current recording tracking */
   const currentMeetingRef = useRef<{ id: string, date: string, dur: number } | null>(null);
+  const whisperStateRef = useRef<Model>(whisper);
   const gemmaStateRef = useRef<Model>(gemma);
+  const transcriptRef = useRef('');
+  const summaryRef = useRef('');
+
+  useEffect(() => { whisperStateRef.current = whisper; }, [whisper]);
+  useEffect(() => { gemmaStateRef.current = gemma; }, [gemma]);
 
   /* Persist / restore */
   useEffect(() => {
+    let whisperWasDone = false;
+    let gemmaWasDone = false;
     try {
       if (!localStorage.getItem('mg_onb')) {
         setHasOnboarded(false);
       }
       const h = localStorage.getItem('mg_h'); if (h) setMeetings(JSON.parse(h));
-      const w = localStorage.getItem('mg_w'); if (w) { const wp = JSON.parse(w); setWhisper(wp); }
-      const g = localStorage.getItem('mg_g'); if (g) { const gp = JSON.parse(g); setGemma(gp); gemmaStateRef.current = gp; }
+      // Normalize any persisted mid-download state (loading can never survive a reload)
+      const w = localStorage.getItem('mg_w');
+      if (w) {
+        const wp = { ...JSON.parse(w), loading: false };
+        whisperWasDone = !!wp.done;
+        setWhisper(wp); whisperStateRef.current = wp;
+      }
+      const g = localStorage.getItem('mg_g');
+      if (g) {
+        const gp = { ...JSON.parse(g), loading: false };
+        gemmaWasDone = !!gp.done;
+        setGemma(gp); gemmaStateRef.current = gp;
+      }
     } catch { /* noop */ }
-    
+
     // Initialize Web Workers
     whisperWorkerRef.current = new Worker(new URL('./workers/whisper.worker.ts', import.meta.url), { type: 'module' });
     llmWorkerRef.current = new Worker(new URL('./workers/llm.worker.ts', import.meta.url), { type: 'module' });
@@ -90,7 +112,8 @@ export function App() {
     whisperWorkerRef.current.onmessage = (e) => {
       const { status, progress, text, message } = e.data;
       if (status === 'progress') {
-        setWhisper(prev => ({ ...prev, loading: true, progress }));
+        // Don't flip an installed model back to "Downloading…" during silent re-warm
+        setWhisper(prev => prev.done ? prev : { ...prev, loading: true, progress });
       } else if (status === 'ready') {
         setWhisper(prev => {
           const next = { ...prev, loading: false, done: true, progress: 100 };
@@ -99,7 +122,11 @@ export function App() {
         });
       } else if (status === 'complete') {
         setTranscript(text);
-        if (llmWorkerRef.current && gemmaStateRef.current.done) {
+        transcriptRef.current = text;
+        if (!text || !text.trim() || text.trim() === '[BLANK_AUDIO]') {
+          setError('No speech detected in the audio.');
+          setProcessing(false);
+        } else if (llmWorkerRef.current && gemmaStateRef.current.done) {
           llmWorkerRef.current.postMessage({ type: 'summarize', text });
         } else {
           setProcessing(false);
@@ -115,39 +142,34 @@ export function App() {
     llmWorkerRef.current.onmessage = (e) => {
       const { status, progress, text, message } = e.data;
       if (status === 'progress') {
-        setGemma(prev => ({ ...prev, loading: true, progress }));
+        setGemma(prev => prev.done ? prev : { ...prev, loading: true, progress });
       } else if (status === 'ready') {
         setGemma(prev => {
           const next = { ...prev, loading: false, done: true, progress: 100 };
-          gemmaStateRef.current = next;
           localStorage.setItem('mg_g', JSON.stringify(next));
           return next;
         });
       } else if (status === 'complete') {
         setSummary(text);
+        summaryRef.current = text;
         // Now ask for title
         llmWorkerRef.current?.postMessage({ type: 'autoTitle', text });
       } else if (status === 'title_complete') {
-        const title = text;
         setProcessing(false);
         const m = currentMeetingRef.current;
-        setTranscript(prevText => {
-          setSummary(prevSum => {
-            if (m) save({ id: m.id, date: m.date, dur: m.dur, title, transcript: prevText, summary: prevSum });
-            return prevSum;
-          });
-          return prevText;
-        });
+        if (m) save({ id: m.id, date: m.date, dur: m.dur, title: text, transcript: transcriptRef.current, summary: summaryRef.current });
       } else if (status === 'error') {
         setError(`Summarization Error: ${message}. Device might not support WebGPU.`);
         setProcessing(false);
         const m = currentMeetingRef.current;
-        setTranscript(prevText => {
-          if (m) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: prevText, summary: '' });
-          return prevText;
-        });
+        if (m && transcriptRef.current) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: transcriptRef.current, summary: '' });
       }
     };
+
+    // Models persisted as installed are cached by the browser — re-warm the
+    // workers so transcription/summarization actually work after a reload.
+    if (whisperWasDone) whisperWorkerRef.current.postMessage({ type: 'init' });
+    if (gemmaWasDone && hasWebGPU) llmWorkerRef.current.postMessage({ type: 'init' });
 
     return () => {
       whisperWorkerRef.current?.terminate();
@@ -184,7 +206,7 @@ export function App() {
     setHasOnboarded(true);
     localStorage.setItem('mg_onb', '1');
     dl('whisper');
-    dl('gemma');
+    if (hasWebGPU) dl('gemma');
   };
 
   /* Audio Visualizer Loop */
@@ -222,6 +244,7 @@ export function App() {
   const start = async () => {
     if (Capacitor.isNativePlatform()) await Haptics.impact({ style: ImpactStyle.Heavy });
     setError(''); setTranscript(''); setSummary(''); setTime(0); chunksRef.current = [];
+    transcriptRef.current = ''; summaryRef.current = '';
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
@@ -265,7 +288,8 @@ export function App() {
   const process = async () => {
     setProcessing(true);
     try {
-      if (!whisper.done) {
+      // Read via ref — this runs from MediaRecorder.onstop, whose closure may hold stale state
+      if (!whisperStateRef.current.done) {
         throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
       }
       const audioFloat32 = await getAudioData(chunksRef.current, 16000);
@@ -280,7 +304,8 @@ export function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     setError(''); setTranscript(''); setSummary(''); setTime(0);
-    
+    transcriptRef.current = ''; summaryRef.current = '';
+
     currentMeetingRef.current = {
       id: Date.now().toString(),
       date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -289,7 +314,7 @@ export function App() {
     
     setProcessing(true);
     try {
-      if (!whisper.done) {
+      if (!whisperStateRef.current.done) {
         throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
       }
       const audioFloat32 = await getAudioData([file], 16000);
@@ -577,7 +602,9 @@ export function App() {
               {([
                 { m: whisper, t: 'whisper' as const, d: 'Provides 100% private, offline speech-to-text transcription directly on your device.' },
                 { m: gemma, t: 'gemma' as const, d: 'Generates private meeting minutes, key action items, and executive summaries on-device.' },
-              ]).map(({ m, t, d }) => (
+              ]).map(({ m, t, d }) => {
+                const gpuBlocked = t === 'gemma' && !hasWebGPU;
+                return (
                 <div key={t} className="model-tile">
                   <div>
                     <div className="model-top">
@@ -586,7 +613,11 @@ export function App() {
                     </div>
                     <p className="model-info">{d}</p>
                   </div>
-                  {m.done ? (
+                  {gpuBlocked ? (
+                    <div className="model-info" style={{ opacity: 0.7 }}>
+                      Requires WebGPU, which this device/browser doesn't support yet. Transcription still works — summaries will be unavailable.
+                    </div>
+                  ) : m.done ? (
                     <div className="model-done"><CheckCircle2 />Installed & Ready</div>
                   ) : m.loading ? (
                     <div className="progress-wrap">
@@ -599,7 +630,7 @@ export function App() {
                     </button>
                   )}
                 </div>
-              ))}
+              ); })}
             </div>
           </section>
         )}
