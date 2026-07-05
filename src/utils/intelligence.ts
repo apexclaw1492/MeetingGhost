@@ -63,6 +63,35 @@ const SUMMARY_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+export function chatSystemPrompt(): string {
+  return `You are MeetingGhost's meeting assistant. Answer the user's question using ONLY the provided meeting excerpts. Quote or reference the relevant meeting when helpful. If the excerpts don't contain the answer, say so plainly.`;
+}
+
+export function chatUserPrompt(question: string, excerpts: { title: string; date: string; text: string }[]): string {
+  const ctx = excerpts
+    .map((e, i) => `[Excerpt ${i + 1} — "${e.title}" (${e.date})]\n${e.text}`)
+    .join('\n\n');
+  return `Meeting excerpts:\n\n${ctx}\n\nQuestion: ${question}`;
+}
+
+/* Ask a question against retrieved excerpts using the user's Claude key */
+export async function askWithClaude(
+  apiKey: string,
+  question: string,
+  excerpts: { title: string; date: string; text: string }[],
+): Promise<string> {
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  const response = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 2048,
+    system: chatSystemPrompt(),
+    messages: [{ role: 'user', content: chatUserPrompt(question, excerpts) }],
+  });
+  const block = response.content.find(b => b.type === 'text');
+  if (!block || block.type !== 'text') throw new Error('Empty response from Claude');
+  return block.text;
+}
+
 /* One call returns title + structured summary + action items.
    Runs in the browser with the user's own key (BYO-key privacy model). */
 export async function summarizeWithClaude(

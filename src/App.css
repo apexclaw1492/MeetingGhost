@@ -1232,3 +1232,32 @@ body {
   line-height: 1.5;
 }
 .settings-select { max-width: 240px; display: block; }
+
+/* ═══════════════════
+   v7.0 — SEMANTIC SEARCH & CHAT
+   ═══════════════════ */
+
+.ask-panel { display: flex; flex-direction: column; gap: 16px; }
+
+.ask-bar { display: flex; gap: 10px; }
+.ask-bar .search-input { flex: 1; }
+.ask-bar .btn-gold:disabled { opacity: 0.6; cursor: default; }
+
+.ask-answer, .ask-sources {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-abyss);
+  border: 1px solid var(--border-ghost);
+}
+.ask-answer .summary-block { margin-top: 10px; white-space: pre-wrap; }
+
+.ask-sources { display: flex; flex-direction: column; gap: 12px; }
+.ask-source {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(212, 175, 55, 0.03);
+  border: 1px solid var(--border-ghost);
+  font-size: 12px;
+}
+.ask-source strong { color: var(--gold-200); font-size: 13px; }
+.ask-source p { margin: 6px 0 0 0; color: var(--text-secondary); line-height: 1.5; }

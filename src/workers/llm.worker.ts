@@ -33,6 +33,18 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({ status: 'complete', text: reply.choices[0].message.content });
     }
 
+    if (type === 'chat') {
+      if (!enginePromise) throw new Error('LLM Engine not initialized');
+      const engine = await enginePromise;
+      const reply = await engine.chat.completions.create({
+        messages: [
+          { role: "system", content: systemPrompt || "You are a helpful assistant." },
+          { role: "user", content: text }
+        ],
+      });
+      self.postMessage({ status: 'chat_complete', text: reply.choices[0].message.content });
+    }
+
     if (type === 'autoTitle') {
       if (!enginePromise) throw new Error('LLM Engine not initialized');
       const engine = await enginePromise;

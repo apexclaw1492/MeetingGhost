@@ -8,7 +8,7 @@ import {
   Download, Award, Zap, HardDrive, CheckCircle2,
   Upload, FileText, Search, Folder as FolderIcon, FolderPlus,
   Highlighter, DatabaseBackup, X, Settings as SettingsIcon,
-  KeyRound, ListChecks
+  KeyRound, ListChecks, MessageSquare, RefreshCw
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import goldBg from './assets/gold_bg.jpg';
@@ -16,8 +16,10 @@ import { getAudioData } from './utils/audio';
 import { store, exportBackup, importBackup } from './utils/store';
 import type { MeetingRecord, Folder, Settings } from './utils/store';
 import { highlightKeywords } from './utils/highlight';
-import { TEMPLATES, localSummaryPrompt, parseActionItems, summarizeWithClaude } from './utils/intelligence';
+import { TEMPLATES, localSummaryPrompt, parseActionItems, summarizeWithClaude, askWithClaude, chatSystemPrompt, chatUserPrompt } from './utils/intelligence';
 import type { TemplateKey } from './utils/intelligence';
+import { chunkTranscript, saveMeetingVectors, deleteMeetingVectors, indexedMeetingIds, searchVectors } from './utils/vectors';
+import type { Chunk } from './utils/vectors';
 import './App.css';
 
 interface Model {
@@ -43,7 +45,13 @@ export function App() {
   const [error, setError] = useState('');
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [tab, setTab] = useState<'studio' | 'history' | 'models' | 'settings'>('studio');
+  const [tab, setTab] = useState<'studio' | 'history' | 'ask' | 'models' | 'settings'>('studio');
+  const [askQuery, setAskQuery] = useState('');
+  const [askAnswer, setAskAnswer] = useState('');
+  const [askSources, setAskSources] = useState<{ title: string; date: string; text: string }[]>([]);
+  const [askBusy, setAskBusy] = useState(false);
+  const [indexedCount, setIndexedCount] = useState(0);
+  const [indexing, setIndexing] = useState(false);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [activeFolder, setActiveFolder] = useState<string>('all');
   const [settings, setSettings] = useState<Settings>(() => store.loadSettings());
@@ -54,6 +62,9 @@ export function App() {
   });
   const [gemma, setGemma] = useState<Model>({
     name: 'Gemma 3 Summarizer', size: '253 MB', done: false, loading: false, progress: 0
+  });
+  const [embedder, setEmbedder] = useState<Model>({
+    name: 'Semantic Search Engine', size: '25 MB', done: false, loading: false, progress: 0
   });
 
   const recRef = useRef<MediaRecorder | null>(null);
@@ -74,6 +85,12 @@ export function App() {
   /* AI Worker Refs */
   const whisperWorkerRef = useRef<Worker | null>(null);
   const llmWorkerRef = useRef<Worker | null>(null);
+  const embedWorkerRef = useRef<Worker | null>(null);
+  const embedRequestsRef = useRef<Map<number, { resolve: (v: number[][]) => void; reject: (e: Error) => void }>>(new Map());
+  const embedRequestSeqRef = useRef(0);
+  const embedderStateRef = useRef<Model>(embedder);
+  const chatResolverRef = useRef<((text: string) => void) | null>(null);
+  useEffect(() => { embedderStateRef.current = embedder; }, [embedder]);
 
   /* Current recording tracking */
   const currentMeetingRef = useRef<{ id: string, date: string, dur: number } | null>(null);
@@ -89,6 +106,7 @@ export function App() {
   useEffect(() => {
     let whisperWasDone = false;
     let gemmaWasDone = false;
+    let embedderWasDone = false;
     try {
       if (!localStorage.getItem('mg_onb')) {
         setHasOnboarded(false);
@@ -108,11 +126,41 @@ export function App() {
         gemmaWasDone = !!gp.done;
         setGemma(gp); gemmaStateRef.current = gp;
       }
+      const em = localStorage.getItem('mg_e');
+      if (em) {
+        const ep = { ...JSON.parse(em), loading: false };
+        embedderWasDone = !!ep.done;
+        setEmbedder(ep); embedderStateRef.current = ep;
+      }
     } catch { /* noop */ }
 
     // Initialize Web Workers
     whisperWorkerRef.current = new Worker(new URL('./workers/whisper.worker.ts', import.meta.url), { type: 'module' });
     llmWorkerRef.current = new Worker(new URL('./workers/llm.worker.ts', import.meta.url), { type: 'module' });
+    embedWorkerRef.current = new Worker(new URL('./workers/embed.worker.ts', import.meta.url), { type: 'module' });
+
+    embedWorkerRef.current.onmessage = (e) => {
+      const { status, progress, requestId, vectors, message } = e.data;
+      if (status === 'progress') {
+        setEmbedder(prev => prev.done ? prev : { ...prev, loading: true, progress });
+      } else if (status === 'ready') {
+        setEmbedder(prev => {
+          const next = { ...prev, loading: false, done: true, progress: 100 };
+          localStorage.setItem('mg_e', JSON.stringify(next));
+          return next;
+        });
+      } else if (status === 'embedded') {
+        embedRequestsRef.current.get(requestId)?.resolve(vectors);
+        embedRequestsRef.current.delete(requestId);
+      } else if (status === 'error') {
+        if (requestId !== undefined) {
+          embedRequestsRef.current.get(requestId)?.reject(new Error(message));
+          embedRequestsRef.current.delete(requestId);
+        } else {
+          setEmbedder(prev => ({ ...prev, loading: false }));
+        }
+      }
+    };
 
     whisperWorkerRef.current.onmessage = (e) => {
       const { status, progress, text, message } = e.data;
@@ -155,6 +203,9 @@ export function App() {
         summaryRef.current = text;
         // Now ask for title
         llmWorkerRef.current?.postMessage({ type: 'autoTitle', text });
+      } else if (status === 'chat_complete') {
+        chatResolverRef.current?.(text);
+        chatResolverRef.current = null;
       } else if (status === 'title_complete') {
         setProcessing(false);
         const m = currentMeetingRef.current;
@@ -175,10 +226,14 @@ export function App() {
     // workers so transcription/summarization actually work after a reload.
     if (whisperWasDone) whisperWorkerRef.current.postMessage({ type: 'init' });
     if (gemmaWasDone && hasWebGPU) llmWorkerRef.current.postMessage({ type: 'init' });
+    if (embedderWasDone) embedWorkerRef.current.postMessage({ type: 'init' });
+
+    indexedMeetingIds().then(ids => setIndexedCount(ids.size)).catch(() => { /* noop */ });
 
     return () => {
       whisperWorkerRef.current?.terminate();
       llmWorkerRef.current?.terminate();
+      embedWorkerRef.current?.terminate();
     };
   }, []);
 
@@ -188,6 +243,82 @@ export function App() {
       localStorage.setItem('mg_h', JSON.stringify(u));
       return u;
     });
+    indexMeeting(r).catch(() => { /* embedder not ready — Index All can catch up later */ });
+  };
+
+  /* ─── Semantic indexing ─── */
+  const embedTexts = (texts: string[]): Promise<number[][]> => {
+    return new Promise((resolve, reject) => {
+      if (!embedWorkerRef.current || !embedderStateRef.current.done) {
+        reject(new Error('Embedder not installed'));
+        return;
+      }
+      const requestId = ++embedRequestSeqRef.current;
+      embedRequestsRef.current.set(requestId, { resolve, reject });
+      embedWorkerRef.current.postMessage({ type: 'embed', texts, requestId });
+    });
+  };
+
+  const indexMeeting = async (r: MeetingRecord) => {
+    if (!r.transcript?.trim()) return;
+    const chunks = chunkTranscript(r.transcript);
+    const vectors = await embedTexts(chunks);
+    await saveMeetingVectors(r.id, chunks.map((text, chunkIndex) => ({ text, chunkIndex, vector: vectors[chunkIndex] })));
+    const ids = await indexedMeetingIds();
+    setIndexedCount(ids.size);
+  };
+
+  const indexAll = async () => {
+    setIndexing(true);
+    try {
+      const done = await indexedMeetingIds();
+      for (const m of meetings) {
+        if (!done.has(m.id)) await indexMeeting(m);
+      }
+    } catch (e: any) {
+      setError(`Indexing failed: ${e.message}`);
+    } finally {
+      setIndexing(false);
+    }
+  };
+
+  /* ─── Ask your meetings ─── */
+  const ask = async () => {
+    const q = askQuery.trim();
+    if (!q || askBusy) return;
+    setAskBusy(true); setAskAnswer(''); setAskSources([]); setError('');
+    try {
+      const [qv] = await embedTexts([q]);
+      const hits = await searchVectors(qv, 5);
+      if (hits.length === 0) {
+        setAskAnswer('No indexed meetings yet. Record a meeting, or press "Index All" in the AI Models tab.');
+        return;
+      }
+      const byId = new Map(meetings.map(m => [m.id, m]));
+      const excerpts = hits.map((c: Chunk) => {
+        const m = byId.get(c.meetingId);
+        return { title: m?.title || 'Untitled Meeting', date: m?.date || '', text: c.text };
+      });
+      setAskSources(excerpts);
+
+      const s = settingsRef.current;
+      if (s.useCloud && s.claudeKey) {
+        setAskAnswer(await askWithClaude(s.claudeKey, q, excerpts));
+      } else if (llmWorkerRef.current && gemmaStateRef.current.done) {
+        const answer = await new Promise<string>((resolve) => {
+          chatResolverRef.current = resolve;
+          llmWorkerRef.current!.postMessage({ type: 'chat', text: chatUserPrompt(q, excerpts), systemPrompt: chatSystemPrompt() });
+        });
+        setAskAnswer(answer);
+      } else {
+        setAskAnswer('Found these relevant excerpts (install the Summarizer model or add a Claude key in Settings for AI answers):');
+      }
+    } catch (e: any) {
+      setAskAnswer('');
+      setError(`Ask failed: ${e.message}`);
+    } finally {
+      setAskBusy(false);
+    }
   };
 
   /* Route summarization: BYO-key Claude when enabled, else the local LLM worker */
@@ -244,6 +375,10 @@ export function App() {
       localStorage.setItem('mg_h', JSON.stringify(u));
       return u;
     });
+    deleteMeetingVectors(id)
+      .then(() => indexedMeetingIds())
+      .then(ids => setIndexedCount(ids.size))
+      .catch(() => { /* noop */ });
   };
 
   /* ─── Folders ─── */
@@ -304,9 +439,11 @@ export function App() {
   };
 
   /* Download Models via Workers */
-  const dl = (type: 'whisper' | 'gemma') => {
+  const dl = (type: 'whisper' | 'gemma' | 'embed') => {
     if (type === 'whisper') {
       whisperWorkerRef.current?.postMessage({ type: 'init' });
+    } else if (type === 'embed') {
+      embedWorkerRef.current?.postMessage({ type: 'init' });
     } else {
       llmWorkerRef.current?.postMessage({ type: 'init' });
     }
@@ -554,6 +691,9 @@ export function App() {
           <button className={`nav-tab${tab === 'history' ? ' active' : ''}`} onClick={() => setTab('history')}>
             <Clock />History{meetings.length > 0 && ` (${meetings.length})`}
           </button>
+          <button className={`nav-tab${tab === 'ask' ? ' active' : ''}`} onClick={() => setTab('ask')}>
+            <MessageSquare />Ask
+          </button>
           <button className={`nav-tab${tab === 'models' ? ' active' : ''}`} onClick={() => setTab('models')}>
             <Zap />AI Models
           </button>
@@ -797,6 +937,73 @@ export function App() {
           </section>
         )}
 
+        {/* ═══ ASK TAB ═══ */}
+        {tab === 'ask' && (
+          <section className="panel ask-panel">
+            <div className="section-heading">
+              <MessageSquare />
+              <span className="gold-text">Ask Your Meetings</span>
+            </div>
+            <p className="ai-intro">
+              Search across everything you've recorded by meaning, not just keywords —
+              answered {settings.useCloud && settings.claudeKey ? 'by Claude' : 'entirely on-device'}.
+            </p>
+
+            {!embedder.done ? (
+              <div className="settings-group">
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  The Semantic Search Engine model isn't installed yet.
+                </p>
+                {embedder.loading ? (
+                  <div className="progress-wrap" style={{ marginTop: 10 }}>
+                    <div className="progress-top"><span>Downloading…</span><span>{embedder.progress}%</span></div>
+                    <div className="progress-track"><div className="progress-bar" style={{ width: `${embedder.progress}%` }} /></div>
+                  </div>
+                ) : (
+                  <button className="btn-download" style={{ marginTop: 10 }} onClick={() => dl('embed')}>
+                    <Download />Download ({embedder.size})
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="ask-bar">
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder='e.g. "What did we decide about the marketing budget?"'
+                    value={askQuery}
+                    onChange={e => setAskQuery(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') ask(); }}
+                  />
+                  <button className="btn-gold" onClick={ask} disabled={askBusy}>
+                    {askBusy ? <Loader2 className="spin" /> : <Sparkles />}Ask
+                  </button>
+                </div>
+
+                {askAnswer && (
+                  <div className="ask-answer">
+                    <div className="panel-label"><Sparkles />Answer</div>
+                    <div className="summary-block">{askAnswer}</div>
+                  </div>
+                )}
+
+                {askSources.length > 0 && (
+                  <div className="ask-sources">
+                    <div className="panel-label"><Search />Sources</div>
+                    {askSources.map((s, i) => (
+                      <div key={i} className="ask-source">
+                        <strong>{s.title}</strong> <span className="history-date">{s.date}</span>
+                        <p>{s.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
         {/* ═══ AI MODELS TAB ═══ */}
         {tab === 'models' && (
           <section className="panel ai-panel">
@@ -811,6 +1018,7 @@ export function App() {
               {([
                 { m: whisper, t: 'whisper' as const, d: 'Provides 100% private, offline speech-to-text transcription directly on your device.' },
                 { m: gemma, t: 'gemma' as const, d: 'Generates private meeting minutes, key action items, and executive summaries on-device.' },
+                { m: embedder, t: 'embed' as const, d: 'Powers semantic search and "Ask your meetings" — finds moments by meaning, not just keywords.' },
               ]).map(({ m, t, d }) => {
                 const gpuBlocked = t === 'gemma' && !hasWebGPU;
                 return (
@@ -841,6 +1049,19 @@ export function App() {
                 </div>
               ); })}
             </div>
+
+            {embedder.done && meetings.length > 0 && (
+              <div className="settings-group" style={{ marginTop: 16 }}>
+                <label className="settings-label"><RefreshCw style={{ width: 14, height: 14 }} /> Semantic Index</label>
+                <p className="settings-hint">
+                  {indexedCount} of {meetings.length} meetings indexed for "Ask Your Meetings". New recordings index automatically.
+                </p>
+                <button className="btn-download" onClick={indexAll} disabled={indexing || indexedCount >= meetings.length}>
+                  {indexing ? <Loader2 className="spin" /> : <RefreshCw />}
+                  {indexing ? 'Indexing…' : 'Index All Meetings'}
+                </button>
+              </div>
+            )}
           </section>
         )}
 
