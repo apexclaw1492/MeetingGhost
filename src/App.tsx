@@ -8,6 +8,7 @@ import {
   Download, Award, Zap, HardDrive, CheckCircle2
 } from 'lucide-react';
 import goldBg from './assets/gold_bg.jpg';
+import { getAudioData } from './utils/audio';
 import './App.css';
 
 /* ─── Types ─── */
@@ -57,42 +58,110 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
+  /* AI Worker Refs */
+  const whisperWorkerRef = useRef<Worker | null>(null);
+  const llmWorkerRef = useRef<Worker | null>(null);
+
+  /* Current recording tracking */
+  const currentMeetingRef = useRef<{ id: string, date: string, dur: number } | null>(null);
+  const gemmaStateRef = useRef<Model>(gemma);
+
   /* Persist / restore */
   useEffect(() => {
     try {
       const h = localStorage.getItem('mg_h'); if (h) setMeetings(JSON.parse(h));
-      const w = localStorage.getItem('mg_w'); if (w) setWhisper(JSON.parse(w));
-      const g = localStorage.getItem('mg_g'); if (g) setGemma(JSON.parse(g));
+      const w = localStorage.getItem('mg_w'); if (w) { const wp = JSON.parse(w); setWhisper(wp); }
+      const g = localStorage.getItem('mg_g'); if (g) { const gp = JSON.parse(g); setGemma(gp); gemmaStateRef.current = gp; }
     } catch { /* noop */ }
+    
+    // Initialize Web Workers
+    whisperWorkerRef.current = new Worker(new URL('./workers/whisper.worker.ts', import.meta.url), { type: 'module' });
+    llmWorkerRef.current = new Worker(new URL('./workers/llm.worker.ts', import.meta.url), { type: 'module' });
+
+    whisperWorkerRef.current.onmessage = (e) => {
+      const { status, progress, text, message } = e.data;
+      if (status === 'progress') {
+        setWhisper(prev => ({ ...prev, loading: true, progress }));
+      } else if (status === 'ready') {
+        setWhisper(prev => {
+          const next = { ...prev, loading: false, done: true, progress: 100 };
+          localStorage.setItem('mg_w', JSON.stringify(next));
+          return next;
+        });
+      } else if (status === 'complete') {
+        setTranscript(text);
+        if (llmWorkerRef.current && gemmaStateRef.current.done) {
+          llmWorkerRef.current.postMessage({ type: 'summarize', text });
+        } else {
+          setProcessing(false);
+          const m = currentMeetingRef.current;
+          if (m) save({ id: m.id, date: m.date, dur: m.dur, transcript: text, summary: '' });
+        }
+      } else if (status === 'error') {
+        setError(`Transcription Error: ${message}`);
+        setProcessing(false);
+      }
+    };
+
+    llmWorkerRef.current.onmessage = (e) => {
+      const { status, progress, text, message } = e.data;
+      if (status === 'progress') {
+        setGemma(prev => ({ ...prev, loading: true, progress }));
+      } else if (status === 'ready') {
+        setGemma(prev => {
+          const next = { ...prev, loading: false, done: true, progress: 100 };
+          gemmaStateRef.current = next;
+          localStorage.setItem('mg_g', JSON.stringify(next));
+          return next;
+        });
+      } else if (status === 'complete') {
+        setSummary(text);
+        setProcessing(false);
+        const m = currentMeetingRef.current;
+        setTranscript(prevText => {
+          if (m) save({ id: m.id, date: m.date, dur: m.dur, transcript: prevText, summary: text });
+          return prevText;
+        });
+      } else if (status === 'error') {
+        setError(`Summarization Error: ${message}. Device might not support WebGPU.`);
+        setProcessing(false);
+        const m = currentMeetingRef.current;
+        setTranscript(prevText => {
+          if (m) save({ id: m.id, date: m.date, dur: m.dur, transcript: prevText, summary: '' });
+          return prevText;
+        });
+      }
+    };
+
+    return () => {
+      whisperWorkerRef.current?.terminate();
+      llmWorkerRef.current?.terminate();
+    };
   }, []);
 
   const save = (r: MeetingRecord) => {
-    const u = [r, ...meetings]; setMeetings(u);
-    localStorage.setItem('mg_h', JSON.stringify(u));
+    setMeetings(prev => {
+      const u = [r, ...prev];
+      localStorage.setItem('mg_h', JSON.stringify(u));
+      return u;
+    });
   };
 
   const remove = (id: string) => {
-    const u = meetings.filter(m => m.id !== id); setMeetings(u);
-    localStorage.setItem('mg_h', JSON.stringify(u));
+    setMeetings(prev => {
+      const u = prev.filter(m => m.id !== id);
+      localStorage.setItem('mg_h', JSON.stringify(u));
+      return u;
+    });
   };
 
-  /* Download simulation */
+  /* Download Models via Workers */
   const dl = (type: 'whisper' | 'gemma') => {
-    const set = type === 'whisper' ? setWhisper : setGemma;
-    const key = type === 'whisper' ? 'mg_w' : 'mg_g';
-    const meta = type === 'whisper'
-      ? { name: 'Whisper Voice-to-Text', size: '141 MB' }
-      : { name: 'Gemma 3 Summarizer', size: '253 MB' };
-    set(p => ({ ...p, loading: true, progress: 0 }));
-    let p = 0;
-    const iv = setInterval(() => {
-      p += type === 'whisper' ? 14 : 10;
-      if (p >= 100) {
-        clearInterval(iv);
-        const d = { ...meta, done: true, loading: false, progress: 100 };
-        set(d); localStorage.setItem(key, JSON.stringify(d));
-      } else set(prev => ({ ...prev, progress: p }));
-    }, 280);
+    if (type === 'whisper') {
+      whisperWorkerRef.current?.postMessage({ type: 'init' });
+    } else {
+      llmWorkerRef.current?.postMessage({ type: 'init' });
+    }
   };
 
   /* Audio Visualizer Loop */
@@ -161,6 +230,11 @@ export function App() {
   const stop = async () => {
     if (Capacitor.isNativePlatform()) await Haptics.impact({ style: ImpactStyle.Medium });
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    currentMeetingRef.current = {
+      id: Date.now().toString(),
+      date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      dur: time
+    };
     if (recRef.current?.state !== 'inactive') recRef.current?.stop();
     setRecording(false);
   };
@@ -168,12 +242,15 @@ export function App() {
   const process = async () => {
     setProcessing(true);
     try {
-      await new Promise(r => setTimeout(r, 2000));
-      const t = `[Transcript — ${new Date().toLocaleTimeString()}]\n\nSpeaker 1: Welcome to the MeetingGhost Gold sync. We're reviewing our cross-platform progress.\n\nSpeaker 2: Voice-to-text recording is live with 100% on-device local processing. The initial app download stays ultra-light.\n\nSpeaker 1: Outstanding. All transcripts can be exported to ChatGPT, Claude, or saved locally with full privacy.`;
-      const s = `Key Takeaways:\n• On-device voice-to-text verified across PWA, iOS, and Android\n• Initial app bundle optimized to ~3 MB with post-install AI models\n• Export available via native Share Sheet, clipboard, and file download`;
-      setTranscript(t); setSummary(s);
-      save({ id: Date.now().toString(), date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), dur: time, transcript: t, summary: s });
-    } catch (e) { setError(`Processing error: ${e}`); } finally { setProcessing(false); }
+      if (!whisper.done) {
+        throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
+      }
+      const audioFloat32 = await getAudioData(chunksRef.current, 16000);
+      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
+    } catch (e: any) { 
+      setError(`Processing error: ${e.message}`); 
+      setProcessing(false); 
+    }
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
