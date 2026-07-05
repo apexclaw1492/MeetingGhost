@@ -3,7 +3,7 @@ import { CreateMLCEngine } from "@mlc-ai/web-llm";
 let enginePromise: Promise<any> | null = null;
 
 self.onmessage = async (e: MessageEvent) => {
-  const { type, text } = e.data;
+  const { type, text, systemPrompt } = e.data;
 
   try {
     if (type === 'init') {
@@ -25,7 +25,7 @@ self.onmessage = async (e: MessageEvent) => {
       
       const reply = await engine.chat.completions.create({
         messages: [
-          { role: "system", content: "You are a professional assistant. Summarize the provided meeting transcript into concise key takeaways and action items." },
+          { role: "system", content: systemPrompt || "You are a professional assistant. Summarize the provided meeting transcript into concise key takeaways and action items." },
           { role: "user", content: text }
         ],
       });

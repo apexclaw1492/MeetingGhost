@@ -7,7 +7,8 @@ import {
   Share2, ShieldCheck, Trash2, Clock, Smartphone, Globe,
   Download, Award, Zap, HardDrive, CheckCircle2,
   Upload, FileText, Search, Folder as FolderIcon, FolderPlus,
-  Highlighter, DatabaseBackup, X
+  Highlighter, DatabaseBackup, X, Settings as SettingsIcon,
+  KeyRound, ListChecks
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import goldBg from './assets/gold_bg.jpg';
@@ -15,6 +16,8 @@ import { getAudioData } from './utils/audio';
 import { store, exportBackup, importBackup } from './utils/store';
 import type { MeetingRecord, Folder, Settings } from './utils/store';
 import { highlightKeywords } from './utils/highlight';
+import { TEMPLATES, localSummaryPrompt, parseActionItems, summarizeWithClaude } from './utils/intelligence';
+import type { TemplateKey } from './utils/intelligence';
 import './App.css';
 
 interface Model {
@@ -40,7 +43,7 @@ export function App() {
   const [error, setError] = useState('');
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [tab, setTab] = useState<'studio' | 'history' | 'models'>('studio');
+  const [tab, setTab] = useState<'studio' | 'history' | 'models' | 'settings'>('studio');
   const [folders, setFolders] = useState<Folder[]>([]);
   const [activeFolder, setActiveFolder] = useState<string>('all');
   const [settings, setSettings] = useState<Settings>(() => store.loadSettings());
@@ -128,12 +131,8 @@ export function App() {
         if (!text || !text.trim() || text.trim() === '[BLANK_AUDIO]') {
           setError('No speech detected in the audio.');
           setProcessing(false);
-        } else if (llmWorkerRef.current && gemmaStateRef.current.done) {
-          llmWorkerRef.current.postMessage({ type: 'summarize', text });
         } else {
-          setProcessing(false);
-          const m = currentMeetingRef.current;
-          if (m) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: text, summary: '' });
+          runSummarization(text);
         }
       } else if (status === 'error') {
         setError(`Transcription Error: ${message}`);
@@ -159,7 +158,11 @@ export function App() {
       } else if (status === 'title_complete') {
         setProcessing(false);
         const m = currentMeetingRef.current;
-        if (m) save({ id: m.id, date: m.date, dur: m.dur, title: text, transcript: transcriptRef.current, summary: summaryRef.current });
+        if (m) save({
+          id: m.id, date: m.date, dur: m.dur, title: text,
+          transcript: transcriptRef.current, summary: summaryRef.current,
+          actionItems: parseActionItems(summaryRef.current),
+        });
       } else if (status === 'error') {
         setError(`Summarization Error: ${message}. Device might not support WebGPU.`);
         setProcessing(false);
@@ -183,6 +186,54 @@ export function App() {
     setMeetings(prev => {
       const u = [r, ...prev];
       localStorage.setItem('mg_h', JSON.stringify(u));
+      return u;
+    });
+  };
+
+  /* Route summarization: BYO-key Claude when enabled, else the local LLM worker */
+  const runSummarization = (text: string) => {
+    const s = settingsRef.current;
+    const m = currentMeetingRef.current;
+    if (s.useCloud && s.claudeKey) {
+      summarizeWithClaude(s.claudeKey, text, s.template as TemplateKey)
+        .then(r => {
+          setSummary(r.summary);
+          summaryRef.current = r.summary;
+          setProcessing(false);
+          if (m) save({ id: m.id, date: m.date, dur: m.dur, title: r.title, transcript: text, summary: r.summary, actionItems: r.actionItems });
+        })
+        .catch(err => {
+          // Cloud failed (bad key, offline, rate limit) — fall back to local
+          setNotice(`Claude request failed (${err?.message || 'error'}) — falling back to on-device summarizer.`);
+          setTimeout(() => setNotice(''), 5000);
+          runLocalSummarization(text);
+        });
+    } else {
+      runLocalSummarization(text);
+    }
+  };
+
+  const runLocalSummarization = (text: string) => {
+    const m = currentMeetingRef.current;
+    if (llmWorkerRef.current && gemmaStateRef.current.done) {
+      llmWorkerRef.current.postMessage({
+        type: 'summarize', text,
+        systemPrompt: localSummaryPrompt(settingsRef.current.template as TemplateKey),
+      });
+    } else {
+      setProcessing(false);
+      if (m) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: text, summary: '' });
+    }
+  };
+
+  const toggleActionItem = (meetingId: string, index: number) => {
+    setMeetings(prev => {
+      const u = prev.map(m => {
+        if (m.id !== meetingId || !m.actionItems) return m;
+        const items = m.actionItems.map((it, i) => i === index ? { ...it, done: !it.done } : it);
+        return { ...m, actionItems: items };
+      });
+      store.saveMeetings(u);
       return u;
     });
   };
@@ -506,6 +557,9 @@ export function App() {
           <button className={`nav-tab${tab === 'models' ? ' active' : ''}`} onClick={() => setTab('models')}>
             <Zap />AI Models
           </button>
+          <button className={`nav-tab${tab === 'settings' ? ' active' : ''}`} onClick={() => setTab('settings')}>
+            <SettingsIcon />Settings
+          </button>
         </nav>
       </header>
 
@@ -725,6 +779,17 @@ export function App() {
                       </div>
                     </div>
                     <div className="history-snippet">{m.transcript}</div>
+                    {m.actionItems && m.actionItems.length > 0 && (
+                      <div className="action-items">
+                        <div className="action-items-label"><ListChecks />Action Items</div>
+                        {m.actionItems.map((it, i) => (
+                          <label key={i} className={`action-item${it.done ? ' done' : ''}`}>
+                            <input type="checkbox" checked={it.done} onChange={() => toggleActionItem(m.id, i)} />
+                            <span>{it.text}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -775,6 +840,57 @@ export function App() {
                   )}
                 </div>
               ); })}
+            </div>
+          </section>
+        )}
+
+        {/* ═══ SETTINGS TAB ═══ */}
+        {tab === 'settings' && (
+          <section className="panel settings-panel">
+            <div className="section-heading">
+              <SettingsIcon />
+              <span className="gold-text">Settings</span>
+            </div>
+
+            <div className="settings-group">
+              <label className="settings-label">Summary Template</label>
+              <p className="settings-hint">Shapes what the AI focuses on when summarizing your meetings.</p>
+              <select
+                className="folder-select settings-select"
+                value={settings.template}
+                onChange={e => setSettings(s => ({ ...s, template: e.target.value as Settings['template'] }))}
+              >
+                {Object.entries(TEMPLATES).map(([k, t]) => (
+                  <option key={k} value={k}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-group">
+              <label className="settings-label"><KeyRound style={{ width: 14, height: 14 }} /> Claude API — Premium Summaries (optional)</label>
+              <p className="settings-hint">
+                By default everything runs 100% on-device. If you want MeetGeek-quality structured summaries,
+                paste your own Anthropic API key. The transcript is then sent directly from your device to
+                Anthropic — never through any MeetingGhost server. The key is stored only on this device and
+                is excluded from backups.
+              </p>
+              <input
+                type="password"
+                className="search-input"
+                placeholder="sk-ant-..."
+                value={settings.claudeKey}
+                onChange={e => setSettings(s => ({ ...s, claudeKey: e.target.value.trim() }))}
+                autoComplete="off"
+              />
+              <label className="action-item" style={{ marginTop: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.useCloud}
+                  onChange={e => setSettings(s => ({ ...s, useCloud: e.target.checked }))}
+                  disabled={!settings.claudeKey}
+                />
+                <span>Use Claude for summaries when available (falls back to on-device if it fails)</span>
+              </label>
             </div>
           </section>
         )}
