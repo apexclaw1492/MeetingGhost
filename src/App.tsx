@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import {
   Mic, Square, Loader2, Sparkles, Brain, Copy, Check,
   Share2, ShieldCheck, Trash2, Clock, Smartphone, Globe,
@@ -49,6 +50,13 @@ export function App() {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
 
+  /* Audio Visualizer Refs */
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+
   /* Persist / restore */
   useEffect(() => {
     try {
@@ -87,21 +95,71 @@ export function App() {
     }, 280);
   };
 
+  /* Audio Visualizer Loop */
+  const drawWaveform = () => {
+    if (!analyserRef.current || !dataArrayRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    analyserRef.current.getByteFrequencyData(dataArrayRef.current as any);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const barWidth = 4;
+    const gap = 3;
+    const bars = Math.floor(canvas.width / (barWidth + gap));
+    
+    const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
+    gradient.addColorStop(0, '#a17a26');
+    gradient.addColorStop(0.5, '#d4af37');
+    gradient.addColorStop(1, '#fef3c7');
+
+    for (let i = 0; i < bars; i++) {
+      const percent = dataArrayRef.current[i * 2] / 255;
+      const height = Math.max(4, percent * canvas.height);
+      const x = i * (barWidth + gap);
+      
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.roundRect(x, (canvas.height / 2) - (height / 2), barWidth, height, 2);
+      ctx.fill();
+    }
+    animFrameRef.current = requestAnimationFrame(drawWaveform);
+  };
+
   /* Recording */
   const start = async () => {
+    if (Capacitor.isNativePlatform()) await Haptics.impact({ style: ImpactStyle.Heavy });
     setError(''); setTranscript(''); setSummary(''); setTime(0); chunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
       recRef.current = mr;
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => { stream.getTracks().forEach(t => t.stop()); await process(); };
+      mr.onstop = async () => { 
+        stream.getTracks().forEach(t => t.stop()); 
+        if (audioCtxRef.current) audioCtxRef.current.close();
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        await process(); 
+      };
+
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+      
+      audioCtxRef.current = audioCtx;
+      analyserRef.current = analyser;
+      dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
+
       mr.start(1000); setRecording(true);
       timerRef.current = window.setInterval(() => setTime(t => t + 1), 1000);
+      drawWaveform();
     } catch { setError('Microphone access denied. Please allow microphone permissions in your browser settings.'); }
   };
 
-  const stop = () => {
+  const stop = async () => {
+    if (Capacitor.isNativePlatform()) await Haptics.impact({ style: ImpactStyle.Medium });
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (recRef.current?.state !== 'inactive') recRef.current?.stop();
     setRecording(false);
@@ -134,8 +192,6 @@ export function App() {
     a.download = `MeetingGhost-${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
-
-  const bars = [30, 60, 20, 80, 40, 70, 25, 90, 50, 35, 65, 45, 85, 30, 55];
 
   return (
     <div className="app-shell">
@@ -221,9 +277,7 @@ export function App() {
 
               {recording && (
                 <div className="waveform">
-                  {bars.map((h, i) => (
-                    <div key={i} className="wave-bar" style={{ '--h': `${h}%`, animationDelay: `${i * 0.1}s` } as React.CSSProperties} />
-                  ))}
+                  <canvas ref={canvasRef} width={200} height={44} style={{ width: '100%', height: '44px' }} />
                 </div>
               )}
 
