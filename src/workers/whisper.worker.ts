@@ -33,14 +33,28 @@ self.onmessage = async (e: MessageEvent) => {
       if (!transcriberPromise) throw new Error('Transcriber not initialized');
       const transcriber = await transcriberPromise;
       self.postMessage({ status: 'processing' });
-      
+
+      // Long audio is processed in 30s windows; report per-chunk progress so
+      // the UI can show a percentage instead of an indefinite spinner.
+      // return_timestamps is REQUIRED for >30s audio: the chunk-stitcher
+      // aligns windows by timestamp tokens — without it long transcripts
+      // collapse to a few words. (language/task omitted: tiny.en is EN-only.)
+      const totalChunks = Math.max(1, Math.ceil((audio.length / 16000) / 25));
+      let seenChunks = 0;
       const result = await transcriber(audio, {
         chunk_length_s: 30,
         stride_length_s: 5,
-        language: 'english',
-        task: 'transcribe',
+        return_timestamps: true,
+        chunk_callback: () => {
+          seenChunks++;
+          self.postMessage({
+            status: 'transcribe_progress',
+            current: Math.min(seenChunks, totalChunks),
+            total: totalChunks,
+          });
+        },
       });
-      
+
       self.postMessage({ status: 'complete', text: result.text });
     }
   } catch (error: any) {

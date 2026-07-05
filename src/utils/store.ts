@@ -16,6 +16,9 @@ export interface MeetingRecord {
   summary: string;
   folderId?: string;
   actionItems?: ActionItem[];
+  /* Save-first pipeline: audio is persisted before transcription starts.
+     'processing' = transcription in flight, 'error' = interrupted/failed (retryable). */
+  status?: 'processing' | 'done' | 'error';
 }
 
 export interface Folder {

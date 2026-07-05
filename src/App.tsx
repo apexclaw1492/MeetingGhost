@@ -94,8 +94,10 @@ export function App() {
   const embedRequestSeqRef = useRef(0);
   const embedderStateRef = useRef<Model>(embedder);
   const chatResolverRef = useRef<((text: string) => void) | null>(null);
-  const pendingAudioRef = useRef<Blob | null>(null);
   const [audioIds, setAudioIds] = useState<Set<string>>(new Set());
+  const [procStatus, setProcStatus] = useState('');
+  const lastDurRef = useRef(0);
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
   useEffect(() => { embedderStateRef.current = embedder; }, [embedder]);
 
   /* Current recording tracking */
@@ -117,7 +119,16 @@ export function App() {
       if (!localStorage.getItem('mg_onb')) {
         setHasOnboarded(false);
       }
-      const h = localStorage.getItem('mg_h'); if (h) setMeetings(JSON.parse(h));
+      const h = localStorage.getItem('mg_h');
+      if (h) {
+        // Meetings that were mid-transcription when the app was killed (iOS
+        // suspends/kills the WebView freely) become retryable, not lost.
+        const loaded: MeetingRecord[] = JSON.parse(h).map((m: MeetingRecord) =>
+          m.status === 'processing' ? { ...m, status: 'error' as const } : m
+        );
+        localStorage.setItem('mg_h', JSON.stringify(loaded));
+        setMeetings(loaded);
+      }
       setFolders(store.loadFolders());
       // Normalize any persisted mid-download state (loading can never survive a reload)
       const w = localStorage.getItem('mg_w');
@@ -169,7 +180,7 @@ export function App() {
     };
 
     whisperWorkerRef.current.onmessage = (e) => {
-      const { status, progress, text, message } = e.data;
+      const { status, progress, text, message, current, total } = e.data;
       if (status === 'progress') {
         // Don't flip an installed model back to "Downloading…" during silent re-warm
         setWhisper(prev => prev.done ? prev : { ...prev, loading: true, progress });
@@ -179,17 +190,30 @@ export function App() {
           localStorage.setItem('mg_w', JSON.stringify(next));
           return next;
         });
+      } else if (status === 'transcribe_progress') {
+        setProcStatus(`Transcribing… ${Math.round((current / total) * 100)}%`);
       } else if (status === 'complete') {
         setTranscript(text);
         transcriptRef.current = text;
+        const m = currentMeetingRef.current;
         if (!text || !text.trim() || text.trim() === '[BLANK_AUDIO]') {
-          setError('No speech detected in the audio.');
+          setError('No speech detected in the audio. The recording is saved in History.');
+          if (m) updateMeeting(m.id, { status: 'done' });
           setProcessing(false);
         } else {
+          // The critical asset: persist the transcript the moment it exists.
+          // Summary and title stream in afterwards as updates to the same record.
+          if (m) {
+            updateMeeting(m.id, { transcript: text, status: 'done' });
+            indexMeeting({ id: m.id, transcript: text } as MeetingRecord).catch(() => { /* embedder optional */ });
+          }
+          setProcStatus('Summarizing…');
           runSummarization(text);
         }
       } else if (status === 'error') {
-        setError(`Transcription Error: ${message}`);
+        const m = currentMeetingRef.current;
+        if (m) updateMeeting(m.id, { status: 'error' });
+        setError(`Transcription failed: ${message}. Your recording is saved in History — tap Retry there.`);
         setProcessing(false);
       }
     };
@@ -207,7 +231,10 @@ export function App() {
       } else if (status === 'complete') {
         setSummary(text);
         summaryRef.current = text;
+        const m = currentMeetingRef.current;
+        if (m) updateMeeting(m.id, { summary: text, actionItems: parseActionItems(text) });
         // Now ask for title
+        setProcStatus('Naming meeting…');
         llmWorkerRef.current?.postMessage({ type: 'autoTitle', text });
       } else if (status === 'chat_complete') {
         chatResolverRef.current?.(text);
@@ -215,16 +242,12 @@ export function App() {
       } else if (status === 'title_complete') {
         setProcessing(false);
         const m = currentMeetingRef.current;
-        if (m) save({
-          id: m.id, date: m.date, dur: m.dur, title: text,
-          transcript: transcriptRef.current, summary: summaryRef.current,
-          actionItems: parseActionItems(summaryRef.current),
-        });
+        if (m) updateMeeting(m.id, { title: text });
       } else if (status === 'error') {
-        setError(`Summarization Error: ${message}. Device might not support WebGPU.`);
+        // Transcript is already saved; the summary is an enhancement, not a gate.
+        setNotice(`Summarizer unavailable (${message}) — transcript saved without a summary.`);
+        setTimeout(() => setNotice(''), 5000);
         setProcessing(false);
-        const m = currentMeetingRef.current;
-        if (m && transcriptRef.current) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: transcriptRef.current, summary: '' });
       }
     };
 
@@ -250,14 +273,68 @@ export function App() {
       localStorage.setItem('mg_h', JSON.stringify(u));
       return u;
     });
-    indexMeeting(r).catch(() => { /* embedder not ready — Index All can catch up later */ });
-    const audio = pendingAudioRef.current;
-    pendingAudioRef.current = null;
-    if (audio) {
-      idb.put('audio', r.id, audio)
-        .then(() => setAudioIds(prev => new Set(prev).add(r.id)))
-        .catch(() => { /* storage full or unavailable — meeting still saved */ });
+  };
+
+  const updateMeeting = (id: string, patch: Partial<MeetingRecord>) => {
+    setMeetings(prev => {
+      const u = prev.map(m => m.id === id ? { ...m, ...patch } : m);
+      localStorage.setItem('mg_h', JSON.stringify(u));
+      return u;
+    });
+  };
+
+  /* ─── Save-first pipeline ───
+     The recording is persisted (record + audio blob) BEFORE any decoding or
+     AI work begins, so an iOS WebView suspension/kill can never lose it. */
+  const beginMeeting = async (audio: Blob, dur: number) => {
+    setProcessing(true);
+    setProcStatus('Saving recording…');
+    setError('');
+    const id = Date.now().toString();
+    const date = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    currentMeetingRef.current = { id, date, dur };
+    save({ id, date, dur, title: 'Untitled Meeting', transcript: '', summary: '', status: 'processing' });
+    try {
+      await idb.put('audio', id, audio);
+      setAudioIds(prev => new Set(prev).add(id));
+    } catch { /* storage full — record still saved, just without replay/retry audio */ }
+    await transcribeMeeting(id, audio, dur);
+  };
+
+  const transcribeMeeting = async (id: string, audio: Blob, dur: number) => {
+    setProcessing(true);
+    try {
+      if (!whisperStateRef.current.done) {
+        throw new Error('Whisper model is not installed — download it in the AI Models tab');
+      }
+      setProcStatus('Preparing audio…');
+      const audioFloat32 = await getAudioData([audio], 16000);
+      // Uploads (and any timer glitch) get their true duration from the audio itself
+      const secs = Math.round(audioFloat32.length / 16000);
+      if (!dur && secs) updateMeeting(id, { dur: secs });
+      setProcStatus('Transcribing…');
+      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
+    } catch (e: unknown) {
+      updateMeeting(id, { status: 'error' });
+      setError(`Processing error: ${e instanceof Error ? e.message : String(e)}. Your recording is saved in History — tap Retry there.`);
+      setProcessing(false);
     }
+  };
+
+  const retryTranscription = async (m: MeetingRecord) => {
+    if (processing) {
+      setNotice('Another transcription is already running — try again when it finishes.');
+      setTimeout(() => setNotice(''), 4000);
+      return;
+    }
+    const blob = await idb.get<Blob>('audio', m.id).catch(() => null);
+    if (!blob) {
+      setError('No stored audio found for this meeting.');
+      return;
+    }
+    currentMeetingRef.current = { id: m.id, date: m.date, dur: m.dur };
+    updateMeeting(m.id, { status: 'processing' });
+    await transcribeMeeting(m.id, blob, m.dur);
   };
 
   /* ─── Semantic indexing ─── */
@@ -345,7 +422,7 @@ export function App() {
           setSummary(r.summary);
           summaryRef.current = r.summary;
           setProcessing(false);
-          if (m) save({ id: m.id, date: m.date, dur: m.dur, title: r.title, transcript: text, summary: r.summary, actionItems: r.actionItems });
+          if (m) updateMeeting(m.id, { title: r.title, summary: r.summary, actionItems: r.actionItems });
         })
         .catch(err => {
           // Cloud failed (bad key, offline, rate limit) — fall back to local
@@ -359,15 +436,14 @@ export function App() {
   };
 
   const runLocalSummarization = (text: string) => {
-    const m = currentMeetingRef.current;
     if (llmWorkerRef.current && gemmaStateRef.current.done) {
       llmWorkerRef.current.postMessage({
         type: 'summarize', text,
         systemPrompt: localSummaryPrompt(settingsRef.current.template as TemplateKey),
       });
     } else {
+      // No summarizer available — transcript is already saved, we're done.
       setProcessing(false);
-      if (m) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: text, summary: '' });
     }
   };
 
@@ -546,11 +622,16 @@ export function App() {
       const mr = new MediaRecorder(stream);
       recRef.current = mr;
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => { 
-        stream.getTracks().forEach(t => t.stop()); 
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
         if (audioCtxRef.current) audioCtxRef.current.close();
         if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-        await process(); 
+        if (chunksRef.current.length === 0) {
+          setError('No audio was captured — please check microphone permission and try again.');
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: chunksRef.current[0].type || 'audio/mp4' });
+        await beginMeeting(blob, lastDurRef.current);
       };
 
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -566,37 +647,15 @@ export function App() {
       mr.start(1000); setRecording(true);
       timerRef.current = window.setInterval(() => setTime(t => t + 1), 1000);
       drawWaveform();
-    } catch { setError('Microphone access denied. Please allow microphone permissions in your browser settings.'); }
+    } catch { setError('Microphone access denied. Enable the microphone for MeetingGhost in your device Settings.'); }
   };
 
   const stop = async () => {
     if (Capacitor.isNativePlatform()) await Haptics.impact({ style: ImpactStyle.Medium });
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    currentMeetingRef.current = {
-      id: Date.now().toString(),
-      date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      dur: time
-    };
+    lastDurRef.current = time; // onstop fires from a stale closure — pass duration via ref
     if (recRef.current?.state !== 'inactive') recRef.current?.stop();
     setRecording(false);
-  };
-
-  const process = async () => {
-    setProcessing(true);
-    try {
-      // Read via ref — this runs from MediaRecorder.onstop, whose closure may hold stale state
-      if (!whisperStateRef.current.done) {
-        throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
-      }
-      if (chunksRef.current.length > 0) {
-        pendingAudioRef.current = new Blob(chunksRef.current, { type: chunksRef.current[0].type });
-      }
-      const audioFloat32 = await getAudioData(chunksRef.current, 16000);
-      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
-    } catch (e: any) { 
-      setError(`Processing error: ${e.message}`); 
-      setProcessing(false); 
-    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -604,26 +663,24 @@ export function App() {
     if (!file) return;
     setError(''); setTranscript(''); setSummary(''); setTime(0);
     transcriptRef.current = ''; summaryRef.current = '';
-
-    currentMeetingRef.current = {
-      id: Date.now().toString(),
-      date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      dur: 0
-    };
-    
-    setProcessing(true);
-    try {
-      if (!whisperStateRef.current.done) {
-        throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
-      }
-      pendingAudioRef.current = file;
-      const audioFloat32 = await getAudioData([file], 16000);
-      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
-    } catch (err: any) {
-      setError(`Upload processing error: ${err.message}`);
-      setProcessing(false);
-    }
+    await beginMeeting(file, 0);
+    e.target.value = ''; // allow re-uploading the same file
   };
+
+  /* Keep the screen awake while recording or transcribing — iOS aggressively
+     suspends the WebView when the screen locks, which was silently killing
+     long transcriptions. No-op where the Wake Lock API is unavailable. */
+  useEffect(() => {
+    if (recording || processing) {
+      (navigator as unknown as { wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> } })
+        .wakeLock?.request('screen')
+        .then(lock => { wakeLockRef.current = lock; })
+        .catch(() => { /* unsupported or low battery — fine */ });
+    } else {
+      wakeLockRef.current?.release().catch(() => { /* already released */ });
+      wakeLockRef.current = null;
+    }
+  }, [recording, processing]);
 
   const fmt = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
@@ -829,7 +886,7 @@ export function App() {
               {processing && (
                 <div className="processing-chip">
                   <Loader2 className="spin" />
-                  <span>Processing on-device…</span>
+                  <span>{procStatus || 'Processing on-device…'}</span>
                 </div>
               )}
               {error && <div className="error-banner">{error}</div>}
@@ -957,6 +1014,12 @@ export function App() {
                         <strong style={{ color: 'var(--gold-200)', display: 'block', fontSize: '15px' }}>{m.title || 'Untitled Meeting'}</strong>
                         <span className="history-date">{m.date}</span>
                         <span className="history-dur">Duration: {fmt(m.dur)}</span>
+                        {m.status === 'processing' && (
+                          <span className="status-chip processing"><Loader2 className="spin" />{procStatus || 'Transcribing…'}</span>
+                        )}
+                        {m.status === 'error' && (
+                          <span className="status-chip error">Transcription interrupted</span>
+                        )}
                       </div>
                       <div className="history-btns">
                         {folders.length > 0 && (
@@ -979,7 +1042,13 @@ export function App() {
                         <button className="btn-sq del" onClick={() => remove(m.id)} title="Delete"><Trash2 /></button>
                       </div>
                     </div>
-                    <div className="history-snippet">{m.transcript}</div>
+                    {m.transcript
+                      ? <div className="history-snippet">{m.transcript}</div>
+                      : m.status === 'error' && audioIds.has(m.id) && (
+                          <button className="btn-gold retry-btn" onClick={() => retryTranscription(m)}>
+                            <RefreshCw />Retry Transcription
+                          </button>
+                        )}
                     {audioIds.has(m.id) && <AudioPlayer meetingId={m.id} />}
                     {m.actionItems && m.actionItems.length > 0 && (
                       <div className="action-items">
