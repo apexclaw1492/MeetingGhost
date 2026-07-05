@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Icon PNG Generator</title>
+</head>
+<body>
+  <h1>MeetingGhost Icon PNG Generator</h1>
+  <p>This generates PNG versions of the SVG icon for iOS and Android.</p>
+  <canvas id="canvas" style="border: 1px solid #ccc;"></canvas>
+  <div id="downloads"></div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const svg = `<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a0a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1515;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d4af37;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#c9a227;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#b8931f;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#bgGrad)" />
+  <g opacity="0.15">
+    <path d="M 256 120 Q 200 120 170 160 Q 140 190 140 250 L 140 320 Q 140 360 170 380 L 190 380 Q 200 390 210 380 L 230 360 Q 250 380 256 390 Q 262 380 280 360 L 300 380 Q 310 390 320 380 L 340 380 Q 370 360 370 320 L 370 250 Q 340 120 256 120 Z"
+          fill="none" stroke="#d4af37" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g>
+    <ellipse cx="256" cy="200" rx="45" ry="55" fill="url(#goldGrad)" filter="url(#glow)"/>
+    <rect x="240" y="250" width="32" height="90" rx="16" fill="url(#goldGrad)" filter="url(#glow)"/>
+    <circle cx="340" cy="220" r="35" fill="none" stroke="url(#goldGrad)" stroke-width="6" opacity="0.8" stroke-linecap="round"/>
+    <circle cx="340" cy="220" r="55" fill="none" stroke="url(#goldGrad)" stroke-width="5" opacity="0.5" stroke-linecap="round"/>
+    <circle cx="340" cy="220" r="75" fill="none" stroke="url(#goldGrad)" stroke-width="4" opacity="0.3" stroke-linecap="round"/>
+  </g>
+  <circle cx="420" cy="420" r="8" fill="#d4af37" opacity="0.8"/>
+  <circle cx="390" cy="450" r="5" fill="#d4af37" opacity="0.5"/>
+</svg>`;
+
+    function generatePNG(size) {
+      canvas.width = size;
+      canvas.height = size;
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(0, 0, size, size);
+
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, size, size);
+        const dataUrl = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `icon-${size}.png`;
+
+        const div = document.createElement('div');
+        div.innerHTML = `<a href="${dataUrl}" download="icon-${size}.png">Download icon-${size}.png</a>`;
+        document.getElementById('downloads').appendChild(div);
+
+        console.log(`Generated icon-${size}.png`);
+      };
+      img.src = 'data:image/svg+xml;base64,' + btoa(svg);
+    }
+
+    // Generate both sizes
+    generatePNG(192);
+    generatePNG(512);
+  </script>
+</body>
+</html>

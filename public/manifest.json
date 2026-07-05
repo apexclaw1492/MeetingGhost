@@ -1,16 +1,30 @@
 {
   "short_name": "MeetingGhost",
-  "name": "MeetingGhost - Private On-Device Meeting Recorder",
+  "name": "MeetingGhost Gold",
+  "description": "Private, on-device meeting transcription and intelligence",
   "icons": [
     {
-      "src": "favicon.svg",
-      "sizes": "192x192 512x512",
-      "type": "image/svg+xml"
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
   "start_url": "./",
-  "background_color": "#030712",
-  "theme_color": "#030712",
+  "background_color": "#0a0a0a",
+  "theme_color": "#d4af37",
   "display": "standalone",
   "orientation": "portrait"
 }
