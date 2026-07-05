@@ -1057,3 +1057,112 @@ body {
   .mic-btn { width: 110px; height: 110px; }
   .mic-btn.gold svg { width: 42px; height: 42px; }
 }
+
+/* ═══════════════════
+   v5.0 — ORGANIZATION & SEARCH
+   ═══════════════════ */
+
+/* Keyword highlighting */
+.kw-mark {
+  background: rgba(212, 175, 55, 0.22);
+  color: var(--gold-100);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.btn-ghost.active-gold {
+  border-color: var(--border-hover);
+  color: var(--gold-300);
+  background: rgba(212, 175, 55, 0.08);
+}
+
+/* Visualizer theme toggle */
+.waveform { position: relative; }
+.viz-toggle {
+  position: absolute;
+  top: -6px;
+  right: 0;
+  text-transform: capitalize;
+  padding: 4px 10px;
+}
+
+/* Notice banner (success feedback) */
+.notice-banner {
+  margin: 12px 0;
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  background: rgba(52, 211, 153, 0.06);
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Folder bar */
+.folder-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 4px 0;
+}
+
+.folder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-abyss);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.folder-chip svg { width: 12px; height: 12px; }
+.folder-chip:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.folder-chip.active {
+  border-color: var(--border-hover);
+  background: rgba(212, 175, 55, 0.10);
+  color: var(--gold-300);
+}
+.folder-chip.new { border-style: dashed; }
+
+.folder-chip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.folder-chip-x {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  opacity: 0.5;
+}
+.folder-chip-x:hover { opacity: 1; color: #fca5a5; }
+
+/* Per-row folder select */
+.folder-select {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-abyss);
+  color: var(--text-secondary);
+  cursor: pointer;
+  max-width: 110px;
+}
+.folder-select:hover { border-color: var(--border-hover); }

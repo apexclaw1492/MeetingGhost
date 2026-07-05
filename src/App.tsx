@@ -6,22 +6,16 @@ import {
   Mic, Square, Loader2, Sparkles, Brain, Copy, Check,
   Share2, ShieldCheck, Trash2, Clock, Smartphone, Globe,
   Download, Award, Zap, HardDrive, CheckCircle2,
-  Upload, FileText, Search
+  Upload, FileText, Search, Folder as FolderIcon, FolderPlus,
+  Highlighter, DatabaseBackup, X
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import goldBg from './assets/gold_bg.jpg';
 import { getAudioData } from './utils/audio';
+import { store, exportBackup, importBackup } from './utils/store';
+import type { MeetingRecord, Folder, Settings } from './utils/store';
+import { highlightKeywords } from './utils/highlight';
 import './App.css';
-
-/* ─── Types ─── */
-interface MeetingRecord {
-  id: string;
-  date: string;
-  dur: number;
-  title: string;
-  transcript: string;
-  summary: string;
-}
 
 interface Model {
   name: string;
@@ -47,6 +41,10 @@ export function App() {
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState<'studio' | 'history' | 'models'>('studio');
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [activeFolder, setActiveFolder] = useState<string>('all');
+  const [settings, setSettings] = useState<Settings>(() => store.loadSettings());
+  const [notice, setNotice] = useState('');
 
   const [whisper, setWhisper] = useState<Model>({
     name: 'Whisper Voice-to-Text', size: '141 MB', done: false, loading: false, progress: 0
@@ -59,6 +57,9 @@ export function App() {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const backupInputRef = useRef<HTMLInputElement | null>(null);
+  const settingsRef = useRef<Settings>(settings);
+  useEffect(() => { settingsRef.current = settings; store.saveSettings(settings); }, [settings]);
 
   /* Audio Visualizer Refs */
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -90,6 +91,7 @@ export function App() {
         setHasOnboarded(false);
       }
       const h = localStorage.getItem('mg_h'); if (h) setMeetings(JSON.parse(h));
+      setFolders(store.loadFolders());
       // Normalize any persisted mid-download state (loading can never survive a reload)
       const w = localStorage.getItem('mg_w');
       if (w) {
@@ -193,6 +195,63 @@ export function App() {
     });
   };
 
+  /* ─── Folders ─── */
+  const createFolder = () => {
+    const name = window.prompt('Folder name:')?.trim();
+    if (!name) return;
+    setFolders(prev => {
+      const u = [...prev, { id: Date.now().toString(), name }];
+      store.saveFolders(u);
+      return u;
+    });
+  };
+
+  const deleteFolder = (id: string) => {
+    setFolders(prev => {
+      const u = prev.filter(f => f.id !== id);
+      store.saveFolders(u);
+      return u;
+    });
+    setMeetings(prev => {
+      const u = prev.map(m => m.folderId === id ? { ...m, folderId: undefined } : m);
+      store.saveMeetings(u);
+      return u;
+    });
+    if (activeFolder === id) setActiveFolder('all');
+  };
+
+  const moveToFolder = (meetingId: string, folderId: string) => {
+    setMeetings(prev => {
+      const u = prev.map(m => m.id === meetingId ? { ...m, folderId: folderId || undefined } : m);
+      store.saveMeetings(u);
+      return u;
+    });
+  };
+
+  /* ─── Backup ─── */
+  const downloadBackup = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([exportBackup()], { type: 'application/json' }));
+    a.download = `MeetingGhost-Backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
+  const handleBackupImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const stats = importBackup(await file.text());
+      setMeetings(store.loadMeetings());
+      setFolders(store.loadFolders());
+      setSettings(store.loadSettings());
+      setNotice(`Backup restored — ${stats.meetings} meetings, ${stats.folders} folders.`);
+      setTimeout(() => setNotice(''), 4000);
+    } catch (err: any) {
+      setError(`Import failed: ${err.message}`);
+    }
+  };
+
   /* Download Models via Workers */
   const dl = (type: 'whisper' | 'gemma') => {
     if (type === 'whisper') {
@@ -209,35 +268,67 @@ export function App() {
     if (hasWebGPU) dl('gemma');
   };
 
-  /* Audio Visualizer Loop */
+  /* Audio Visualizer Loop — three gold themes: bars, wave, circle */
   const drawWaveform = () => {
     if (!analyserRef.current || !dataArrayRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    analyserRef.current.getByteFrequencyData(dataArrayRef.current as any);
+    const data = dataArrayRef.current;
+    analyserRef.current.getByteFrequencyData(data as any);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const barWidth = 4;
-    const gap = 3;
-    const bars = Math.floor(canvas.width / (barWidth + gap));
-    
+
     const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
     gradient.addColorStop(0, '#a17a26');
     gradient.addColorStop(0.5, '#d4af37');
     gradient.addColorStop(1, '#fef3c7');
 
-    for (let i = 0; i < bars; i++) {
-      const percent = dataArrayRef.current[i * 2] / 255;
-      const height = Math.max(4, percent * canvas.height);
-      const x = i * (barWidth + gap);
-      
-      ctx.fillStyle = gradient;
+    const theme = settingsRef.current.vizTheme;
+    if (theme === 'wave') {
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.roundRect(x, (canvas.height / 2) - (height / 2), barWidth, height, 2);
-      ctx.fill();
+      const step = canvas.width / data.length;
+      for (let i = 0; i < data.length; i++) {
+        const y = canvas.height / 2 + ((data[i] - 128) / 255) * canvas.height * 0.9
+          * Math.sin(i / data.length * Math.PI); // taper the edges
+        if (i === 0) ctx.moveTo(0, y); else ctx.lineTo(i * step, y);
+      }
+      ctx.stroke();
+    } else if (theme === 'circle') {
+      const cx = canvas.width / 2, cy = canvas.height / 2;
+      const base = Math.min(cx, cy) * 0.45;
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < data.length; i++) {
+        const angle = (i / data.length) * Math.PI * 2;
+        const len = base + (data[i] / 255) * (Math.min(cx, cy) - base - 2);
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(angle) * base, cy + Math.sin(angle) * base);
+        ctx.lineTo(cx + Math.cos(angle) * len, cy + Math.sin(angle) * len);
+        ctx.stroke();
+      }
+    } else {
+      const barWidth = 4;
+      const gap = 3;
+      const bars = Math.floor(canvas.width / (barWidth + gap));
+      for (let i = 0; i < bars; i++) {
+        const percent = data[i * 2] / 255;
+        const height = Math.max(4, percent * canvas.height);
+        const x = i * (barWidth + gap);
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, (canvas.height / 2) - (height / 2), barWidth, height, 2);
+        ctx.fill();
+      }
     }
     animFrameRef.current = requestAnimationFrame(drawWaveform);
+  };
+
+  const cycleVizTheme = () => {
+    const order: Settings['vizTheme'][] = ['bars', 'wave', 'circle'];
+    setSettings(s => ({ ...s, vizTheme: order[(order.indexOf(s.vizTheme) + 1) % order.length] }));
   };
 
   /* Recording */
@@ -370,9 +461,10 @@ export function App() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  const filteredMeetings = meetings.filter(m => 
-    m.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    m.transcript?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredMeetings = meetings.filter(m =>
+    (activeFolder === 'all' || m.folderId === activeFolder) &&
+    (m.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+     m.transcript?.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -473,6 +565,9 @@ export function App() {
               {recording && (
                 <div className="waveform">
                   <canvas ref={canvasRef} width={200} height={44} style={{ width: '100%', height: '44px' }} />
+                  <button className="btn-ghost viz-toggle" onClick={cycleVizTheme} title="Change visualizer theme">
+                    <Sparkles />{settings.vizTheme}
+                  </button>
                 </div>
               )}
 
@@ -492,6 +587,13 @@ export function App() {
                   <div className="panel-label"><Brain />Live Transcript</div>
                   {transcript && (
                     <div className="btn-row">
+                      <button
+                        className={`btn-ghost${settings.highlightKeywords ? ' active-gold' : ''}`}
+                        onClick={() => setSettings(s => ({ ...s, highlightKeywords: !s.highlightKeywords }))}
+                        title="Highlight action words"
+                      >
+                        <Highlighter />
+                      </button>
                       <button className="btn-ghost" onClick={() => clip(transcript)}>
                         {copied ? <><Check />Copied</> : <><Copy />Copy</>}
                       </button>
@@ -503,7 +605,7 @@ export function App() {
                 </div>
                 <div className="output-area">
                   {transcript
-                    ? <div className="mono-block">{transcript}</div>
+                    ? <div className="mono-block">{settings.highlightKeywords ? highlightKeywords(transcript) : transcript}</div>
                     : <div className="empty-placeholder">Transcript will appear here after recording</div>
                   }
                 </div>
@@ -544,16 +646,47 @@ export function App() {
                 <Clock />
                 <span className="gold-text">Saved Meetings ({meetings.length})</span>
               </div>
+              <div className="btn-row">
+                <input type="file" accept="application/json" ref={backupInputRef} hidden onChange={handleBackupImport} />
+                <button className="btn-ghost" onClick={() => backupInputRef.current?.click()} title="Import backup JSON">
+                  <Upload />Import
+                </button>
+                <button className="btn-ghost" onClick={downloadBackup} title="Export all data as JSON">
+                  <DatabaseBackup />Backup
+                </button>
+              </div>
             </div>
-            
+
+            {notice && <div className="notice-banner">{notice}</div>}
+            {error && tab === 'history' && <div className="error-banner">{error}</div>}
+
+            <div className="folder-bar">
+              <button className={`folder-chip${activeFolder === 'all' ? ' active' : ''}`} onClick={() => setActiveFolder('all')}>
+                <FolderIcon />All ({meetings.length})
+              </button>
+              {folders.map(f => (
+                <span key={f.id} className={`folder-chip${activeFolder === f.id ? ' active' : ''}`}>
+                  <button className="folder-chip-label" onClick={() => setActiveFolder(f.id)}>
+                    <FolderIcon />{f.name} ({meetings.filter(m => m.folderId === f.id).length})
+                  </button>
+                  <button className="folder-chip-x" onClick={() => deleteFolder(f.id)} title={`Delete folder "${f.name}"`}>
+                    <X />
+                  </button>
+                </span>
+              ))}
+              <button className="folder-chip new" onClick={createFolder} title="New folder">
+                <FolderPlus />New
+              </button>
+            </div>
+
             {meetings.length > 0 && (
               <div className="history-controls">
-                <input 
-                  type="text" 
-                  className="search-input" 
-                  placeholder="Search meetings by title or transcript..." 
-                  value={searchQuery} 
-                  onChange={(e) => setSearchQuery(e.target.value)} 
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Search meetings by title or transcript..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
             )}
@@ -574,6 +707,17 @@ export function App() {
                         <span className="history-dur">Duration: {fmt(m.dur)}</span>
                       </div>
                       <div className="history-btns">
+                        {folders.length > 0 && (
+                          <select
+                            className="folder-select"
+                            value={m.folderId || ''}
+                            onChange={(e) => moveToFolder(m.id, e.target.value)}
+                            title="Move to folder"
+                          >
+                            <option value="">No folder</option>
+                            {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                          </select>
+                        )}
                         <button className="btn-sq" onClick={() => exportPDF(m.title, m.transcript, m.summary)} title="Export PDF"><FileText /></button>
                         <button className="btn-sq" onClick={() => exportMD(m.title, m.transcript, m.summary)} title="Export Markdown"><Download /></button>
                         <button className="btn-sq" onClick={() => share(m.transcript)} title="Share Text"><Share2 /></button>
