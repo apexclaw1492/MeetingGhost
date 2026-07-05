@@ -29,6 +29,8 @@ export interface Settings {
   template: 'general' | 'standup' | 'sales' | 'interview';
   claudeKey: string;
   useCloud: boolean;
+  githubToken: string;
+  githubRepo: string;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -37,6 +39,8 @@ const DEFAULT_SETTINGS: Settings = {
   template: 'general',
   claudeKey: '',
   useCloud: false,
+  githubToken: '',
+  githubRepo: '',
 };
 
 function read<T>(key: string, fallback: T): T {
@@ -75,9 +79,10 @@ export function exportBackup(): string {
     const v = localStorage.getItem(k);
     if (v !== null) { try { data[k] = JSON.parse(v); } catch { data[k] = v; } }
   }
-  // Never write the user's API key into a shareable backup file
+  // Never write the user's API keys/tokens into a shareable backup file
   if (data.mg_settings && typeof data.mg_settings === 'object') {
     delete (data.mg_settings as Record<string, unknown>).claudeKey;
+    delete (data.mg_settings as Record<string, unknown>).githubToken;
   }
   return JSON.stringify(data, null, 2);
 }

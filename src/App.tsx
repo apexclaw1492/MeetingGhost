@@ -8,7 +8,8 @@ import {
   Download, Award, Zap, HardDrive, CheckCircle2,
   Upload, FileText, Search, Folder as FolderIcon, FolderPlus,
   Highlighter, DatabaseBackup, X, Settings as SettingsIcon,
-  KeyRound, ListChecks, MessageSquare, RefreshCw
+  KeyRound, ListChecks, MessageSquare, RefreshCw,
+  CircleDot, CalendarPlus, Mail
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import goldBg from './assets/gold_bg.jpg';
@@ -20,6 +21,7 @@ import { TEMPLATES, localSummaryPrompt, parseActionItems, summarizeWithClaude, a
 import type { TemplateKey } from './utils/intelligence';
 import { chunkTranscript, saveMeetingVectors, deleteMeetingVectors, indexedMeetingIds, searchVectors } from './utils/vectors';
 import type { Chunk } from './utils/vectors';
+import { createGitHubIssue, buildFollowUpICS, buildMailto, meetingToMarkdown } from './utils/integrations';
 import './App.css';
 
 interface Model {
@@ -621,32 +623,69 @@ export function App() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
-  const exportPDF = (title: string, t: string, s: string) => {
+  const exportPDF = (m: MeetingRecord) => {
     const doc = new jsPDF();
     doc.setFontSize(18);
-    doc.text(title || "MeetingGhost Transcript", 20, 20);
+    doc.text(m.title || "MeetingGhost Transcript", 20, 20);
+    doc.setFontSize(10);
+    doc.text(m.date, 20, 28);
     doc.setFontSize(14);
-    doc.text("Summary", 20, 35);
+    doc.text("Summary", 20, 40);
     doc.setFontSize(12);
-    const splitSum = doc.splitTextToSize(s || '', 170);
-    doc.text(splitSum, 20, 45);
-    
+    doc.text(doc.splitTextToSize(m.summary || 'No summary.', 170), 20, 50);
+
+    if (m.actionItems?.length) {
+      doc.addPage();
+      doc.setFontSize(14);
+      doc.text("Action Items", 20, 20);
+      doc.setFontSize(12);
+      const items = m.actionItems.map(it => `[${it.done ? 'x' : ' '}] ${it.text}`).join('\n');
+      doc.text(doc.splitTextToSize(items, 170), 20, 30);
+    }
+
     doc.addPage();
     doc.setFontSize(14);
     doc.text("Transcript", 20, 20);
     doc.setFontSize(12);
-    const splitText = doc.splitTextToSize(t || '', 170);
-    doc.text(splitText, 20, 30);
-    
-    doc.save(`MeetingGhost-${title || Date.now()}.pdf`);
+    doc.text(doc.splitTextToSize(m.transcript || '', 170), 20, 30);
+
+    doc.save(`MeetingGhost-${m.title || m.id}.pdf`);
   };
 
-  const exportMD = (title: string, t: string, s: string) => {
-    const md = `# ${title || 'MeetingGhost Transcript'}\n\n## Summary\n${s || ''}\n\n## Transcript\n${t || ''}`;
+  const exportMD = (m: MeetingRecord) => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
-    a.download = `MeetingGhost-${title || Date.now()}.md`;
+    a.href = URL.createObjectURL(new Blob([meetingToMarkdown(m)], { type: 'text/markdown' }));
+    a.download = `MeetingGhost-${m.title || m.id}.md`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
+  /* ─── v8.0 Integrations ─── */
+  const exportToGitHub = async (m: MeetingRecord) => {
+    const s = settingsRef.current;
+    if (!s.githubToken || !s.githubRepo) {
+      setTab('settings');
+      setNotice('Add your GitHub token and repository in Settings first.');
+      setTimeout(() => setNotice(''), 4000);
+      return;
+    }
+    try {
+      const url = await createGitHubIssue(s.githubToken, s.githubRepo, m);
+      setNotice(`GitHub issue created: ${url}`);
+      setTimeout(() => setNotice(''), 6000);
+    } catch (e: any) {
+      setError(`GitHub export failed: ${e.message}`);
+    }
+  };
+
+  const downloadICS = (m: MeetingRecord) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buildFollowUpICS(m)], { type: 'text/calendar' }));
+    a.download = `MeetingGhost-FollowUp-${m.id}.ics`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
+  const emailDraft = (m: MeetingRecord) => {
+    window.location.href = buildMailto(m);
   };
 
   const filteredMeetings = meetings.filter(m =>
@@ -704,6 +743,9 @@ export function App() {
       </header>
 
       <main className="main">
+        {notice && <div className="notice-banner">{notice}</div>}
+        {error && tab !== 'studio' && <div className="error-banner" style={{ maxWidth: 'none' }}>{error}</div>}
+
         {/* ═══ HERO CARD ═══ */}
         <section className="hero">
           <div className="hero-texture" style={{ backgroundImage: `url(${goldBg})` }} />
@@ -851,9 +893,6 @@ export function App() {
               </div>
             </div>
 
-            {notice && <div className="notice-banner">{notice}</div>}
-            {error && tab === 'history' && <div className="error-banner">{error}</div>}
-
             <div className="folder-bar">
               <button className={`folder-chip${activeFolder === 'all' ? ' active' : ''}`} onClick={() => setActiveFolder('all')}>
                 <FolderIcon />All ({meetings.length})
@@ -912,8 +951,11 @@ export function App() {
                             {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                           </select>
                         )}
-                        <button className="btn-sq" onClick={() => exportPDF(m.title, m.transcript, m.summary)} title="Export PDF"><FileText /></button>
-                        <button className="btn-sq" onClick={() => exportMD(m.title, m.transcript, m.summary)} title="Export Markdown"><Download /></button>
+                        <button className="btn-sq" onClick={() => exportPDF(m)} title="Export PDF"><FileText /></button>
+                        <button className="btn-sq" onClick={() => exportMD(m)} title="Export Markdown"><Download /></button>
+                        <button className="btn-sq" onClick={() => exportToGitHub(m)} title="Export Action Items to GitHub Issue"><CircleDot /></button>
+                        <button className="btn-sq" onClick={() => downloadICS(m)} title="Add Follow-up to Calendar (.ics)"><CalendarPlus /></button>
+                        <button className="btn-sq" onClick={() => emailDraft(m)} title="Draft Email"><Mail /></button>
                         <button className="btn-sq" onClick={() => share(m.transcript)} title="Share Text"><Share2 /></button>
                         <button className="btn-sq del" onClick={() => remove(m.id)} title="Delete"><Trash2 /></button>
                       </div>
@@ -1112,6 +1154,32 @@ export function App() {
                 />
                 <span>Use Claude for summaries when available (falls back to on-device if it fails)</span>
               </label>
+            </div>
+
+            <div className="settings-group">
+              <label className="settings-label"><CircleDot style={{ width: 14, height: 14 }} /> GitHub Integration (optional)</label>
+              <p className="settings-hint">
+                Export a meeting's action items as a GitHub issue (one issue per meeting, with a
+                task-list checklist). Needs a fine-grained personal access token with Issues write
+                access. The token stays on this device and is excluded from backups.
+              </p>
+              <input
+                type="text"
+                className="search-input"
+                placeholder="owner/repository (e.g. acme/meeting-actions)"
+                value={settings.githubRepo}
+                onChange={e => setSettings(s => ({ ...s, githubRepo: e.target.value.trim() }))}
+                autoComplete="off"
+              />
+              <input
+                type="password"
+                className="search-input"
+                style={{ marginTop: 8 }}
+                placeholder="github_pat_... or ghp_..."
+                value={settings.githubToken}
+                onChange={e => setSettings(s => ({ ...s, githubToken: e.target.value.trim() }))}
+                autoComplete="off"
+              />
             </div>
           </section>
         )}
