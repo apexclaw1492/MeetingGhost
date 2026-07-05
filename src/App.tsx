@@ -5,8 +5,10 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import {
   Mic, Square, Loader2, Sparkles, Brain, Copy, Check,
   Share2, ShieldCheck, Trash2, Clock, Smartphone, Globe,
-  Download, Award, Zap, HardDrive, CheckCircle2
+  Download, Award, Zap, HardDrive, CheckCircle2,
+  Upload, FileText, Search
 } from 'lucide-react';
+import jsPDF from 'jspdf';
 import goldBg from './assets/gold_bg.jpg';
 import { getAudioData } from './utils/audio';
 import './App.css';
@@ -16,6 +18,7 @@ interface MeetingRecord {
   id: string;
   date: string;
   dur: number;
+  title: string;
   transcript: string;
   summary: string;
 }
@@ -30,6 +33,7 @@ interface Model {
 
 /* ─── App ─── */
 export function App() {
+  const [hasOnboarded, setHasOnboarded] = useState(true);
   const [recording, setRecording] = useState(false);
   const [time, setTime] = useState(0);
   const [transcript, setTranscript] = useState('');
@@ -38,6 +42,7 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [meetings, setMeetings] = useState<MeetingRecord[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState<'studio' | 'history' | 'models'>('studio');
 
   const [whisper, setWhisper] = useState<Model>({
@@ -50,6 +55,7 @@ export function App() {
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   /* Audio Visualizer Refs */
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -69,6 +75,9 @@ export function App() {
   /* Persist / restore */
   useEffect(() => {
     try {
+      if (!localStorage.getItem('mg_onb')) {
+        setHasOnboarded(false);
+      }
       const h = localStorage.getItem('mg_h'); if (h) setMeetings(JSON.parse(h));
       const w = localStorage.getItem('mg_w'); if (w) { const wp = JSON.parse(w); setWhisper(wp); }
       const g = localStorage.getItem('mg_g'); if (g) { const gp = JSON.parse(g); setGemma(gp); gemmaStateRef.current = gp; }
@@ -95,7 +104,7 @@ export function App() {
         } else {
           setProcessing(false);
           const m = currentMeetingRef.current;
-          if (m) save({ id: m.id, date: m.date, dur: m.dur, transcript: text, summary: '' });
+          if (m) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: text, summary: '' });
         }
       } else if (status === 'error') {
         setError(`Transcription Error: ${message}`);
@@ -116,10 +125,17 @@ export function App() {
         });
       } else if (status === 'complete') {
         setSummary(text);
+        // Now ask for title
+        llmWorkerRef.current?.postMessage({ type: 'autoTitle', text });
+      } else if (status === 'title_complete') {
+        const title = text;
         setProcessing(false);
         const m = currentMeetingRef.current;
         setTranscript(prevText => {
-          if (m) save({ id: m.id, date: m.date, dur: m.dur, transcript: prevText, summary: text });
+          setSummary(prevSum => {
+            if (m) save({ id: m.id, date: m.date, dur: m.dur, title, transcript: prevText, summary: prevSum });
+            return prevSum;
+          });
           return prevText;
         });
       } else if (status === 'error') {
@@ -127,7 +143,7 @@ export function App() {
         setProcessing(false);
         const m = currentMeetingRef.current;
         setTranscript(prevText => {
-          if (m) save({ id: m.id, date: m.date, dur: m.dur, transcript: prevText, summary: '' });
+          if (m) save({ id: m.id, date: m.date, dur: m.dur, title: 'Untitled Meeting', transcript: prevText, summary: '' });
           return prevText;
         });
       }
@@ -162,6 +178,13 @@ export function App() {
     } else {
       llmWorkerRef.current?.postMessage({ type: 'init' });
     }
+  };
+
+  const handleOnboarding = () => {
+    setHasOnboarded(true);
+    localStorage.setItem('mg_onb', '1');
+    dl('whisper');
+    dl('gemma');
   };
 
   /* Audio Visualizer Loop */
@@ -253,6 +276,30 @@ export function App() {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(''); setTranscript(''); setSummary(''); setTime(0);
+    
+    currentMeetingRef.current = {
+      id: Date.now().toString(),
+      date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      dur: 0
+    };
+    
+    setProcessing(true);
+    try {
+      if (!whisper.done) {
+        throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
+      }
+      const audioFloat32 = await getAudioData([file], 16000);
+      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
+    } catch (err: any) {
+      setError(`Upload processing error: ${err.message}`);
+      setProcessing(false);
+    }
+  };
+
   const fmt = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const clip = async (t: string) => {
@@ -270,8 +317,53 @@ export function App() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
+  const exportPDF = (title: string, t: string, s: string) => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text(title || "MeetingGhost Transcript", 20, 20);
+    doc.setFontSize(14);
+    doc.text("Summary", 20, 35);
+    doc.setFontSize(12);
+    const splitSum = doc.splitTextToSize(s || '', 170);
+    doc.text(splitSum, 20, 45);
+    
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.text("Transcript", 20, 20);
+    doc.setFontSize(12);
+    const splitText = doc.splitTextToSize(t || '', 170);
+    doc.text(splitText, 20, 30);
+    
+    doc.save(`MeetingGhost-${title || Date.now()}.pdf`);
+  };
+
+  const exportMD = (title: string, t: string, s: string) => {
+    const md = `# ${title || 'MeetingGhost Transcript'}\n\n## Summary\n${s || ''}\n\n## Transcript\n${t || ''}`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+    a.download = `MeetingGhost-${title || Date.now()}.md`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
+  const filteredMeetings = meetings.filter(m => 
+    m.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    m.transcript?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="app-shell">
+      {!hasOnboarded && (
+        <div className="onboarding-overlay">
+          <div className="onboarding-modal">
+            <h2>Welcome to MeetingGhost Gold</h2>
+            <p>To provide 100% private, on-device intelligence without cloud subscriptions, MeetingGhost requires one-time downloads of our AI models (Whisper & TinyLlama). No audio ever leaves your device.</p>
+            <button className="btn-primary" onClick={handleOnboarding}>
+              <Download /> Download Required Models
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Noise texture overlay for metal feel */}
       <div className="noise-overlay" />
 
@@ -330,23 +422,24 @@ export function App() {
         {/* ═══ STUDIO TAB ═══ */}
         {tab === 'studio' && (
           <div className="recorder-layout">
-            {/* Voice Recorder */}
+            {/* Voice Recorder Status */}
             <div className={`panel voice-panel${recording ? ' is-recording' : ''}`}>
-              <div className="mic-orbit">
-                <div className="orbit-ring" />
-                <div className="orbit-ring" />
-                <div className="orbit-ring" />
-                <button
-                  className={`mic-btn${recording ? ' recording' : ' gold'}`}
-                  onClick={recording ? stop : start}
-                  aria-label={recording ? 'Stop Recording' : 'Start Recording'}
-                >
-                  {recording ? <Square fill="currentColor" /> : <Mic />}
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '16px' }}>
+                <p className="voice-hint" style={{ margin: 0 }}>
+                  {recording ? 'Recording live audio…' : 'Tap the golden mic to start recording'}
+                </p>
+                {!recording && (
+                  <>
+                    <input type="file" accept="audio/*" ref={fileInputRef} hidden onChange={handleFileUpload} />
+                    <button className="upload-btn" onClick={() => fileInputRef.current?.click()} title="Import Audio File">
+                      <Upload />
+                    </button>
+                  </>
+                )}
               </div>
 
               {recording && (
-                <div className="rec-chip">
+                <div className="rec-chip" style={{ margin: '0 auto 16px auto' }}>
                   <div className="rec-dot" />
                   <span className="rec-label">REC {fmt(time)}</span>
                 </div>
@@ -357,10 +450,6 @@ export function App() {
                   <canvas ref={canvasRef} width={200} height={44} style={{ width: '100%', height: '44px' }} />
                 </div>
               )}
-
-              <p className="voice-hint">
-                {recording ? 'Recording live audio…' : 'Tap the golden mic to start recording'}
-              </p>
 
               {processing && (
                 <div className="processing-chip">
@@ -403,33 +492,67 @@ export function App() {
                 }
               </div>
             </div>
+
+            {/* Floating Action Area for Record Button */}
+            <div className="floating-action-area">
+              <div className="mic-orbit" style={{ margin: 0 }}>
+                <div className="orbit-ring" />
+                <div className="orbit-ring" />
+                <div className="orbit-ring" />
+                <button
+                  className={`mic-btn${recording ? ' recording' : ' gold'}`}
+                  onClick={recording ? stop : start}
+                  aria-label={recording ? 'Stop Recording' : 'Start Recording'}
+                >
+                  {recording ? <Square fill="currentColor" /> : <Mic />}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
         {/* ═══ HISTORY TAB ═══ */}
         {tab === 'history' && (
           <section className="panel history-panel">
-            <div className="section-heading">
-              <Clock />
-              <span className="gold-text">Saved Meetings ({meetings.length})</span>
+            <div className="section-heading" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock />
+                <span className="gold-text">Saved Meetings ({meetings.length})</span>
+              </div>
             </div>
-            {meetings.length === 0 ? (
+            
+            {meetings.length > 0 && (
+              <div className="history-controls">
+                <input 
+                  type="text" 
+                  className="search-input" 
+                  placeholder="Search meetings by title or transcript..." 
+                  value={searchQuery} 
+                  onChange={(e) => setSearchQuery(e.target.value)} 
+                />
+              </div>
+            )}
+
+            {filteredMeetings.length === 0 ? (
               <div className="history-empty">
-                <div className="history-empty-icon"><Clock /></div>
-                <p>No saved meetings yet. Start a recording to save transcripts.</p>
+                <div className="history-empty-icon"><Search /></div>
+                <p>No meetings found.</p>
               </div>
             ) : (
               <div className="history-stack">
-                {meetings.map(m => (
+                {filteredMeetings.map(m => (
                   <div key={m.id} className="history-row">
                     <div className="history-row-top">
                       <div className="history-meta">
+                        <strong style={{ color: 'var(--gold-200)', display: 'block', fontSize: '15px' }}>{m.title || 'Untitled Meeting'}</strong>
                         <span className="history-date">{m.date}</span>
                         <span className="history-dur">Duration: {fmt(m.dur)}</span>
                       </div>
                       <div className="history-btns">
-                        <button className="btn-sq" onClick={() => share(m.transcript)}><Share2 /></button>
-                        <button className="btn-sq del" onClick={() => remove(m.id)}><Trash2 /></button>
+                        <button className="btn-sq" onClick={() => exportPDF(m.title, m.transcript, m.summary)} title="Export PDF"><FileText /></button>
+                        <button className="btn-sq" onClick={() => exportMD(m.title, m.transcript, m.summary)} title="Export Markdown"><Download /></button>
+                        <button className="btn-sq" onClick={() => share(m.transcript)} title="Share Text"><Share2 /></button>
+                        <button className="btn-sq del" onClick={() => remove(m.id)} title="Delete"><Trash2 /></button>
                       </div>
                     </div>
                     <div className="history-snippet">{m.transcript}</div>

@@ -30,6 +30,20 @@ self.onmessage = async (e: MessageEvent) => {
       
       self.postMessage({ status: 'complete', text: reply.choices[0].message.content });
     }
+
+    if (type === 'autoTitle') {
+      if (!engine) throw new Error('LLM Engine not initialized');
+      self.postMessage({ status: 'title_processing' });
+      
+      const reply = await engine.chat.completions.create({
+        messages: [
+          { role: "system", content: "You are an assistant. Generate a highly concise 3-5 word title for this meeting based on the transcript. Reply ONLY with the title." },
+          { role: "user", content: text }
+        ],
+      });
+      
+      self.postMessage({ status: 'title_complete', text: reply.choices[0].message.content.replace(/["']/g, "").trim() });
+    }
   } catch (error: any) {
     // If WebGPU is unsupported (e.g. iOS Safari without flags), this will catch
     self.postMessage({ status: 'error', message: error.message });
