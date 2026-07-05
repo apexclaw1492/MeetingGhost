@@ -22,6 +22,8 @@ import type { TemplateKey } from './utils/intelligence';
 import { chunkTranscript, saveMeetingVectors, deleteMeetingVectors, indexedMeetingIds, searchVectors } from './utils/vectors';
 import type { Chunk } from './utils/vectors';
 import { createGitHubIssue, buildFollowUpICS, buildMailto, meetingToMarkdown } from './utils/integrations';
+import { idb } from './utils/idb';
+import { AudioPlayer } from './components/AudioPlayer';
 import './App.css';
 
 interface Model {
@@ -92,6 +94,8 @@ export function App() {
   const embedRequestSeqRef = useRef(0);
   const embedderStateRef = useRef<Model>(embedder);
   const chatResolverRef = useRef<((text: string) => void) | null>(null);
+  const pendingAudioRef = useRef<Blob | null>(null);
+  const [audioIds, setAudioIds] = useState<Set<string>>(new Set());
   useEffect(() => { embedderStateRef.current = embedder; }, [embedder]);
 
   /* Current recording tracking */
@@ -231,6 +235,7 @@ export function App() {
     if (embedderWasDone) embedWorkerRef.current.postMessage({ type: 'init' });
 
     indexedMeetingIds().then(ids => setIndexedCount(ids.size)).catch(() => { /* noop */ });
+    idb.keys('audio').then(keys => setAudioIds(new Set(keys.map(String)))).catch(() => { /* noop */ });
 
     return () => {
       whisperWorkerRef.current?.terminate();
@@ -246,6 +251,13 @@ export function App() {
       return u;
     });
     indexMeeting(r).catch(() => { /* embedder not ready — Index All can catch up later */ });
+    const audio = pendingAudioRef.current;
+    pendingAudioRef.current = null;
+    if (audio) {
+      idb.put('audio', r.id, audio)
+        .then(() => setAudioIds(prev => new Set(prev).add(r.id)))
+        .catch(() => { /* storage full or unavailable — meeting still saved */ });
+    }
   };
 
   /* ─── Semantic indexing ─── */
@@ -380,6 +392,9 @@ export function App() {
     deleteMeetingVectors(id)
       .then(() => indexedMeetingIds())
       .then(ids => setIndexedCount(ids.size))
+      .catch(() => { /* noop */ });
+    idb.del('audio', id)
+      .then(() => setAudioIds(prev => { const n = new Set(prev); n.delete(id); return n; }))
       .catch(() => { /* noop */ });
   };
 
@@ -573,6 +588,9 @@ export function App() {
       if (!whisperStateRef.current.done) {
         throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
       }
+      if (chunksRef.current.length > 0) {
+        pendingAudioRef.current = new Blob(chunksRef.current, { type: chunksRef.current[0].type });
+      }
       const audioFloat32 = await getAudioData(chunksRef.current, 16000);
       whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
     } catch (e: any) { 
@@ -598,6 +616,7 @@ export function App() {
       if (!whisperStateRef.current.done) {
         throw new Error("Whisper model is not installed. Go to AI Models tab to download it first.");
       }
+      pendingAudioRef.current = file;
       const audioFloat32 = await getAudioData([file], 16000);
       whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
     } catch (err: any) {
@@ -961,6 +980,7 @@ export function App() {
                       </div>
                     </div>
                     <div className="history-snippet">{m.transcript}</div>
+                    {audioIds.has(m.id) && <AudioPlayer meetingId={m.id} />}
                     {m.actionItems && m.actionItems.length > 0 && (
                       <div className="action-items">
                         <div className="action-items-label"><ListChecks />Action Items</div>

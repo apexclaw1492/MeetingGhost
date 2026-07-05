@@ -1,37 +1,61 @@
 # Current Architectural State
-**Last Updated:** MeetingGhost Gold (v4.0)
+**Last Updated:** MeetingGhost Gold v9.0 (2026-07-05)
 
 ## Tech Stack
-- **Framework:** React 19 (Vite)
-- **Styling:** Vanilla CSS (`App.css`)
-- **Native Bridge:** Capacitor (iOS, Android, Web)
-- **Icons:** `lucide-react`
-- **PDF Generation:** `jspdf`
-- **AI Models:**
-  - Transcription: `@xenova/transformers` (Whisper tiny.en)
-  - Summarization: `@mlc-ai/web-llm` (TinyLlama 1.1B Chat)
+- **Framework:** React 19 (Vite 8, TypeScript)
+- **Styling:** Vanilla CSS (`App.css`), brushed gold / obsidian theme
+- **Native Bridge:** Capacitor 8 (iOS via SPM `App.xcodeproj`, Android via Gradle)
+- **Icons:** `lucide-react` (no brand icons — GitHub uses `CircleDot`)
+- **PDF:** `jspdf`
+- **AI Models (all on-device, downloaded on demand, cached in browser Cache API):**
+  - Transcription: `@xenova/transformers` — Whisper tiny.en (WASM)
+  - Summarization/Chat: `@mlc-ai/web-llm` — TinyLlama 1.1B (WebGPU)
+  - Embeddings: `@xenova/transformers` — MiniLM-L6-v2 (WASM)
+- **Optional cloud tier:** `@anthropic-ai/sdk` in-browser with the user's own key
+  (`claude-opus-4-8`, structured outputs) — direct device→Anthropic, no middleman
 
 ## System Architecture
 
-### 1. Main Thread (`src/App.tsx`)
-- Handles UI, state management, and `MediaRecorder` logic.
-- Audio from the microphone is captured in chunks, resampled to 16kHz Float32 using `src/utils/audio.ts`, and dispatched to the Web Workers.
-- Persists meeting records to `localStorage` under keys `mg_h` (history), `mg_w` (whisper state), and `mg_g` (gemma/tinyllama state).
+### Main thread (`src/App.tsx`)
+UI + state + MediaRecorder. Tabs: Studio, History, Ask, AI Models, Settings.
+All AI work is off-thread in three Web Workers created on mount.
+**Workers are re-warmed on startup** for any model persisted as installed —
+without this, transcription dies after reload ("Transcriber not initialized").
 
-### 2. Web Workers
-To keep the UI running at 60fps, all AI inference is offloaded to two Web Workers:
-- **`src/workers/whisper.worker.ts`**: 
-  - Loads the pipeline on initialization.
-  - Receives `Float32Array` audio, processes it, and streams `status: 'progress'` back.
-  - Returns `status: 'complete'` with the full text transcript.
-- **`src/workers/llm.worker.ts`**:
-  - Requires WebGPU support.
-  - Receives text payloads.
-  - Processes `type: 'summarize'` (generates meeting notes) and `type: 'autoTitle'` (generates a 3-5 word title).
+### Workers (`src/workers/`)
+- `whisper.worker.ts` — init/transcribe; queues transcribe behind in-flight init;
+  aggregates per-file download progress into one percentage.
+- `llm.worker.ts` — summarize (template-driven `systemPrompt`), autoTitle, chat.
+- `embed.worker.ts` — MiniLM embeddings with requestId-correlated responses.
 
-### 3. Styling Paradigm (`src/App.css`)
-- **Viewport:** Uses `100dvh` heavily to fix Safari iOS address bar collapse issues.
-- **Floating Action:** The Record button is nested inside `.floating-action-area` which is `position: fixed; bottom: 0;` to ensure it never gets pushed off screen by long transcripts.
+### Persistence
+- `localStorage` via `src/utils/store.ts`: `mg_h` meetings, `mg_f` folders,
+  `mg_settings` (viz theme, highlight toggle, template, Claude key, GitHub token/repo),
+  `mg_w`/`mg_g`/`mg_e` model states, `mg_onb` onboarding.
+- `IndexedDB` (`meetingghost` DB via `src/utils/idb.ts`): `vectors` store
+  (per-meeting chunk embeddings), `audio` store (recording blobs for playback).
+- Backup export strips `claudeKey` and `githubToken`.
 
-## Known Limitations / Edges Cases to Monitor
-- iOS WebGPU support is still experimental in some versions of Safari. The `llm.worker.ts` has a `try/catch` block that will return an error status if WebGPU fails to initialize, allowing the app to still function as a transcription-only tool.
+### Pipeline
+record/upload → resample 16kHz (`utils/audio.ts`) → whisper worker →
+`runSummarization` (cloud Claude if enabled+key, else local LLM, else transcript-only)
+→ auto-title → save → auto semantic index + audio blob persisted.
+Empty transcripts short-circuit with "No speech detected".
+
+### Feature modules (`src/utils/`)
+- `intelligence.ts` — summary templates, action-item parsing, Claude API calls
+- `vectors.ts` — sentence-aware chunking, cosine search over IDB
+- `integrations.ts` — GitHub issue export, .ics follow-up, mailto, markdown
+- `highlight.tsx` — action-word highlighting
+
+## Known Limitations
+- WebGPU absent on most mobile WebViews → local summarizer unavailable there
+  (UI states this; transcription + BYO-key Claude still work).
+- TinyLlama structure adherence is loose; action-item parsing is best-effort
+  on the local path (cloud path is schema-enforced).
+- Recording stops when the app is backgrounded (no native background audio service yet).
+
+## Build notes
+- Gradle needs JDK 21 (`JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`).
+- iOS builds from `ios/App/App.xcodeproj` (no workspace; Capacitor 8 SPM).
+- `npx cap sync android` / `ios` explicitly; bare `sync` has skipped android before.

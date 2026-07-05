@@ -5,16 +5,12 @@ Strategy agreed with owner (2026-07-05): blend the original backlog with MeetGee
 features; stay local-first but add an optional bring-your-own-key Claude API tier; verify each
 version with web build + preview test + `cap sync` + Gradle + xcodebuild; one commit per version.
 
-- [ ] **v5.0 Organization & Search:** folders for history, keyword highlighting in transcripts,
-      full JSON backup export/import, visualizer themes (bars/waveform/circular), storage module.
-- [ ] **v6.0 Meeting Intelligence:** structured summaries (key points / decisions / action items),
-      action-item checklist UI, summary templates, optional BYO-key Claude summarizer + settings.
-- [ ] **v7.0 Semantic Search & Chat:** local embeddings worker (MiniLM), vector search across
-      meetings, "Ask your meetings" chat (local LLM or BYO-key).
-- [ ] **v8.0 Integrations & Sharing:** GitHub Issues export for action items, .ics follow-up
-      export, email drafts, richer structured PDF/MD exports.
-- [ ] **v9.0 Playback & Pro Polish:** persist audio to IndexedDB with playback (0.5–2.5x),
-      translation, final docs pass.
+- [x] **v5.0 Organization & Search** — shipped (commit ca25235).
+- [x] **v6.0 Meeting Intelligence** — shipped (commit 235560b).
+- [x] **v7.0 Semantic Search & Chat** — shipped (commit 7922235).
+- [x] **v8.0 Integrations & Sharing** — shipped (commit 7df3310).
+- [x] **v9.0 Playback & Polish** — audio playback (owner chose this over live
+      transcription/translation for v9), README + docs refresh.
 
 ## Done in v4.1 (2026-07-05)
 - [x] Workers re-warm after reload (previously: models "Installed" but transcription dead).

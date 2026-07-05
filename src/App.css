@@ -1261,3 +1261,25 @@ body {
 }
 .ask-source strong { color: var(--gold-200); font-size: 13px; }
 .ask-source p { margin: 6px 0 0 0; color: var(--text-secondary); line-height: 1.5; }
+
+/* ═══════════════════
+   v9.0 — PLAYBACK
+   ═══════════════════ */
+
+.audio-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.audio-player audio {
+  flex: 1;
+  height: 36px;
+  filter: invert(0.9) sepia(0.3) saturate(2) hue-rotate(5deg);
+  border-radius: 999px;
+}
+.speed-btn {
+  min-width: 52px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
