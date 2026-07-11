@@ -386,15 +386,20 @@ export function App() {
 
     // Test automation: native side fires this when launched with MG_SELFTEST=1.
     // Starts a FRESH run — any stale persisted run is stopped and replaced.
-    const onSelfTestAutostart = () => {
+    // detail: { secs, cycles, ladder } from MG_SELFTEST_SECS/CYCLES/LADDER.
+    const onSelfTestAutostart = (e: Event) => {
       if (autostartHandledRef.current) return; // once per app process
       autostartHandledRef.current = true;
-      dlog('selftest.autostart');
+      const detail = (e as CustomEvent).detail || {};
+      const secs = Number(detail.secs) > 0 ? Number(detail.secs) : 20;
+      const cycles = Number(detail.cycles) > 0 ? Number(detail.cycles) : 25;
+      const ladder = Array.isArray(detail.ladder) && detail.ladder.length ? detail.ladder.map(Number) : undefined;
+      dlog('selftest.autostart', { secs, cycles, ladder: ladder?.join(',') });
       const cur = loadSelfTest();
       if (cur?.running) { cur.running = false; saveSelfTest(cur); }
       const begin = () => {
         if (selfTestBusyRef.current) { window.setTimeout(begin, 3000); return; }
-        const st = newSelfTest(25, 20);
+        const st = newSelfTest(cycles, secs, new Date().toISOString(), ladder);
         saveSelfTest(st);
         setSelfTest(st);
         void runSelfTest(st);
@@ -674,7 +679,7 @@ export function App() {
           const id = currentMeetingRef.current?.id;
           st = { ...st, activeMeetingId: id };
           await persist();
-          await sleep(st.recordSecs * 1000);
+          await sleep((st.ladder?.[st.cycle - 1] ?? st.recordSecs) * 1000);
           await stop();
         } finally {
           navigator.mediaDevices.getUserMedia = origGUM;

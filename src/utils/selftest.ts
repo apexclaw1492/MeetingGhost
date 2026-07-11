@@ -34,6 +34,7 @@ export interface SelfTestState {
   startedAt: string;
   kills: number;           // relaunches detected while running
   activeMeetingId?: string; // meeting of the in-flight cycle (for kill recovery)
+  ladder?: number[];       // per-cycle recording seconds (duration-ladder mode)
   finishedAt?: string;
 }
 
@@ -48,8 +49,13 @@ export function saveSelfTest(s: SelfTestState | null) {
   else localStorage.setItem(KEY, JSON.stringify(s));
 }
 
-export function newSelfTest(total = 25, recordSecs = 20, startedAt = new Date().toISOString()): SelfTestState {
-  return { running: true, cycle: 1, total, recordSecs, results: [], startedAt, kills: 0 };
+export function newSelfTest(total = 25, recordSecs = 20, startedAt = new Date().toISOString(), ladder?: number[]): SelfTestState {
+  return {
+    running: true, cycle: 1,
+    total: ladder?.length || total,
+    recordSecs, results: [], startedAt, kills: 0,
+    ...(ladder?.length ? { ladder } : {}),
+  };
 }
 
 /* A silent-ish synthesized stream: low-volume tone so MediaRecorder always has
