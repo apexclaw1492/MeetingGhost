@@ -1,0 +1,184 @@
+{
+  "_meetingghost_selftest": 1,
+  "platform": "ios",
+  "running": true,
+  "cycle": 18,
+  "total": 25,
+  "recordSecs": 20,
+  "results": [
+    {
+      "cycle": 1,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 261790,
+      "dur": 20,
+      "ms": 21287
+    },
+    {
+      "cycle": 2,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263250,
+      "dur": 20,
+      "ms": 21105
+    },
+    {
+      "cycle": 3,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263197,
+      "dur": 20,
+      "ms": 21127
+    },
+    {
+      "cycle": 4,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263250,
+      "dur": 20,
+      "ms": 21112
+    },
+    {
+      "cycle": 5,
+      "resumedAfterKill": true,
+      "saved": false,
+      "transcribed": false,
+      "status": "recovery_required",
+      "segments": 0,
+      "bytes": 0,
+      "dur": 0,
+      "ms": 1
+    },
+    {
+      "cycle": 6,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 261953,
+      "dur": 20,
+      "ms": 21282
+    },
+    {
+      "cycle": 7,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263265,
+      "dur": 20,
+      "ms": 21097
+    },
+    {
+      "cycle": 8,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263301,
+      "dur": 20,
+      "ms": 21105
+    },
+    {
+      "cycle": 9,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263197,
+      "dur": 20,
+      "ms": 21099
+    },
+    {
+      "cycle": 10,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263250,
+      "dur": 20,
+      "ms": 21104
+    },
+    {
+      "cycle": 11,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 262967,
+      "dur": 20,
+      "ms": 21096
+    },
+    {
+      "cycle": 12,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 262980,
+      "dur": 20,
+      "ms": 21101
+    },
+    {
+      "cycle": 13,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263197,
+      "dur": 20,
+      "ms": 21101
+    },
+    {
+      "cycle": 14,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 262980,
+      "dur": 20,
+      "ms": 21099
+    },
+    {
+      "cycle": 15,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263197,
+      "dur": 20,
+      "ms": 21096
+    },
+    {
+      "cycle": 16,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 263250,
+      "dur": 20,
+      "ms": 21098
+    },
+    {
+      "cycle": 17,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 1,
+      "bytes": 262876,
+      "dur": 20,
+      "ms": 21110
+    }
+  ],
+  "startedAt": "2026-07-11T18:42:38.430Z",
+  "kills": 1,
+  "activeMeetingId": "1783796113368"
+}

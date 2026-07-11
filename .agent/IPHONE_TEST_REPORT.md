@@ -14,10 +14,28 @@ Release build, native Apple Speech engine (run 1, hands-free via MG_SELFTEST):**
 - Evidence: `selftest-results.json` pulled from the device via devicectl
   (machine-generated metrics only)
 
-**Run 2 (kill-recovery variant):** fresh run confirmed live (4 cycles PASS),
-force-quit fired mid-cycle-5 via devicectl; run checkpointed. Resumes
-automatically at next unlock (screen auto-locked when the kill released the
-app's wake lock — iOS blocks launches while locked).
+**Run 2 (kill-recovery variant, `device-evidence-run2-killrecovery.json`):**
+fresh run confirmed live (cycles 1–4 PASS) → **force-quit (SIGKILL) fired
+mid-cycle-5** via devicectl → phone relaunched → run **resumed automatically
+from its persisted cursor, kills=1 counted**. Killed cycle 5 was seconds into
+its recording (nothing flushed yet) and landed in `recovery_required` with an
+honest zero-bytes diagnosis — the documented ≤60s in-flight window, surfaced,
+not silently lost. **Cycles 6–17 all PASS after the resume** (16/17 non-killed
+cycles pass; run continues whenever the app is next foregrounded — suspension
+mid-run checkpoints and resumes by design).
+
+**Acceptance mapping (device-verified):**
+- "All 25 two-minute tests save playable audio" → run 1: 25/25 ✓
+- "At least 24/25 auto-transcribe" → run 1: 25/25 ✓
+- "Force quit during recording/transcription → recover" → run 2: kill mid-run,
+  auto-resume, kills counted, per-cycle states honest ✓
+- "Stopped recordings appear in History immediately / no endless state after
+  relaunch / audio playable when transcription fails" → owner screenshot +
+  runs 1–2 state reconstruction ✓
+- "Memory does not continuously grow" → inferred only (app survived 25+17
+  consecutive cycles without jetsam); Xcode instrument numbers still pending.
+- Real-speech accuracy, 15/60/120-min recordings, Bluetooth, calls, restart,
+  low storage, permission-denial → still owner-run checklist items.
 
 ---
 
