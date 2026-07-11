@@ -1,4 +1,27 @@
-# iPhone Reliability Test Report — v10.0
+# iPhone Reliability Test Report — v11.1
+
+## ★ Device-verified acceptance results (2026-07-11)
+
+**25-cycle record→save→transcribe matrix — PHYSICAL iPhone 14 Pro, iOS 26.5,
+Release build, native Apple Speech engine (run 1, hands-free via MG_SELFTEST):**
+
+- startedAt 17:57:48Z → finishedAt 18:06:36Z (8.8 min)
+- **25/25 cycles saved playable audio** (verified byte counts 257–274 KB per 20s cycle)
+- **25/25 cycles auto-transcribed to `complete`** (acceptance requires ≥24/25)
+- ~21.1s per cycle: 20s recording + ~1s native transcription
+  (Whisper-WASM took 25–40s per 20s segment and crashed the WebView)
+- Zero crashes across the entire run; app process alive throughout
+- Evidence: `selftest-results.json` pulled from the device via devicectl
+  (machine-generated metrics only)
+
+**Run 2 (kill-recovery variant):** fresh run confirmed live (4 cycles PASS),
+force-quit fired mid-cycle-5 via devicectl; run checkpointed. Resumes
+automatically at next unlock (screen auto-locked when the kill released the
+app's wake lock — iOS blocks launches while locked).
+
+---
+
+# Historical: v10.0 report
 
 **Device:** David's iPhone XIV — iPhone 14 Pro (iPhone15,2), iOS 26.5
 **Build type:** Release (`xcodebuild -configuration Release`, automatic signing, team NDZXSR63GJ)

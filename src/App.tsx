@@ -124,6 +124,7 @@ export function App() {
   const [savedFlash, setSavedFlash] = useState(''); // "recording safely saved" confirmation
   const [selfTest, setSelfTest] = useState<SelfTestState | null>(null);
   const selfTestBusyRef = useRef(false);
+  const autostartHandledRef = useRef(false);
   const [nativeSTT, setNativeSTT] = useState<{ available: boolean; engine?: string } | null>(null);
   const nativeSTTRef = useRef<{ available: boolean; engine?: string } | null>(null);
   useEffect(() => { nativeSTTRef.current = nativeSTT; }, [nativeSTT]);
@@ -383,15 +384,22 @@ export function App() {
     }
     dlog('app.launch', { version: APP_VERSION, platform: Capacitor.getPlatform() });
 
-    // Test automation: native side fires this when launched with MG_SELFTEST=1
+    // Test automation: native side fires this when launched with MG_SELFTEST=1.
+    // Starts a FRESH run — any stale persisted run is stopped and replaced.
     const onSelfTestAutostart = () => {
-      const cur = loadSelfTest();
-      if (cur?.running || selfTestBusyRef.current) return; // idempotent
+      if (autostartHandledRef.current) return; // once per app process
+      autostartHandledRef.current = true;
       dlog('selftest.autostart');
-      const st = newSelfTest(25, 20);
-      saveSelfTest(st);
-      setSelfTest(st);
-      void runSelfTest(st);
+      const cur = loadSelfTest();
+      if (cur?.running) { cur.running = false; saveSelfTest(cur); }
+      const begin = () => {
+        if (selfTestBusyRef.current) { window.setTimeout(begin, 3000); return; }
+        const st = newSelfTest(25, 20);
+        saveSelfTest(st);
+        setSelfTest(st);
+        void runSelfTest(st);
+      };
+      window.setTimeout(begin, 1500);
     };
     window.addEventListener('mg-selftest-autostart', onSelfTestAutostart);
 
@@ -604,10 +612,14 @@ export function App() {
      on relaunch and is counted as a recovery event. */
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-  const awaitTerminal = async (id: string, maxSec: number): Promise<MeetingRecord | undefined> => {
+  const awaitTerminal = async (id: string, maxSec: number, runId?: string): Promise<MeetingRecord | undefined> => {
     for (let t = 0; t < maxSec; t++) {
       const m = getMeeting(id);
       if (m && ['complete', 'transcription_failed', 'transcription_interrupted', 'recovery_required'].includes(m.status || '')) return m;
+      if (runId) {
+        const live = loadSelfTest();
+        if (!live?.running || live.startedAt !== runId) return getMeeting(id); // run canceled/replaced
+      }
       await sleep(1000);
     }
     return getMeeting(id);
@@ -633,7 +645,7 @@ export function App() {
         if (m) {
           const t0 = performance.now();
           if (m.status !== 'complete' && (m.segments || 0) > 0) await retryTranscription(m);
-          const done = await awaitTerminal(st.activeMeetingId, 300);
+          const done = await awaitTerminal(st.activeMeetingId, 300, st.startedAt);
           st.results.push({
             cycle: st.cycle, resumedAfterKill: true,
             saved: (done?.segments || 0) > 0 && (done?.bytes || 0) > 0,
@@ -668,7 +680,7 @@ export function App() {
           navigator.mediaDevices.getUserMedia = origGUM;
         }
         const id = st.activeMeetingId;
-        const m = id ? await awaitTerminal(id, 300) : undefined;
+        const m = id ? await awaitTerminal(id, 300, st.startedAt) : undefined;
         dispose();
         st.results.push({
           cycle: st.cycle,
@@ -681,9 +693,9 @@ export function App() {
         if (id) remove(id); // keep the device clean across 25 runs
         st = { ...st, cycle: st.cycle + 1, activeMeetingId: undefined };
         await persist();
-        // reload current selfTest 'running' flag in case the user pressed Stop
+        // reload live state: stop if the user pressed Stop OR a new run replaced this one
         const live = loadSelfTest();
-        if (!live?.running) { st.running = false; break; }
+        if (!live?.running || live.startedAt !== st.startedAt) { st.running = false; break; }
       }
 
       if (st.cycle > st.total) {
@@ -822,24 +834,23 @@ export function App() {
     }
   };
 
+  /* All meeting-list writers persist synchronously from localStorage (the
+     source of truth) — persisting inside batched updaters let a stale `prev`
+     overwrite records that save()/updateMeeting() had just written. */
   const toggleActionItem = (meetingId: string, index: number) => {
-    setMeetings(prev => {
-      const u = prev.map(m => {
-        if (m.id !== meetingId || !m.actionItems) return m;
-        const items = m.actionItems.map((it, i) => i === index ? { ...it, done: !it.done } : it);
-        return { ...m, actionItems: items };
-      });
-      store.saveMeetings(u);
-      return u;
+    const u = store.loadMeetings().map(m => {
+      if (m.id !== meetingId || !m.actionItems) return m;
+      const items = m.actionItems.map((it, i) => i === index ? { ...it, done: !it.done } : it);
+      return { ...m, actionItems: items };
     });
+    store.saveMeetings(u);
+    setMeetings(u);
   };
 
   const remove = (id: string) => {
-    setMeetings(prev => {
-      const u = prev.filter(m => m.id !== id);
-      localStorage.setItem('mg_h', JSON.stringify(u));
-      return u;
-    });
+    const u = store.loadMeetings().filter(m => m.id !== id);
+    store.saveMeetings(u);
+    setMeetings(u);
     deleteMeetingVectors(id)
       .then(() => indexedMeetingIds())
       .then(ids => setIndexedCount(ids.size))
@@ -866,20 +877,16 @@ export function App() {
       store.saveFolders(u);
       return u;
     });
-    setMeetings(prev => {
-      const u = prev.map(m => m.folderId === id ? { ...m, folderId: undefined } : m);
-      store.saveMeetings(u);
-      return u;
-    });
+    const u = store.loadMeetings().map(m => m.folderId === id ? { ...m, folderId: undefined } : m);
+    store.saveMeetings(u);
+    setMeetings(u);
     if (activeFolder === id) setActiveFolder('all');
   };
 
   const moveToFolder = (meetingId: string, folderId: string) => {
-    setMeetings(prev => {
-      const u = prev.map(m => m.id === meetingId ? { ...m, folderId: folderId || undefined } : m);
-      store.saveMeetings(u);
-      return u;
-    });
+    const u = store.loadMeetings().map(m => m.id === meetingId ? { ...m, folderId: folderId || undefined } : m);
+    store.saveMeetings(u);
+    setMeetings(u);
   };
 
   /* ─── Backup ─── */
