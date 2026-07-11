@@ -28,9 +28,11 @@ import { AudioPlayer } from './components/AudioPlayer';
 import { SegmentedRecorder, SEGMENT_MS } from './utils/recorder';
 import { writeSegment, readSegment, countSegmentsOnDisk, deleteMeetingAudio, freeBytes, STORAGE_WARN_BYTES } from './utils/audioStore';
 import { log as dlog, logError as dlogError, exportDiagnostics } from './utils/diag';
+import { loadSelfTest, saveSelfTest, newSelfTest, makeTestStream, writeResultsFile, summarize } from './utils/selftest';
+import type { SelfTestState } from './utils/selftest';
 import './App.css';
 
-export const APP_VERSION = 'v10.0';
+export const APP_VERSION = 'v10.1';
 
 interface Model {
   name: string;
@@ -111,6 +113,8 @@ export function App() {
   const transcribingIdRef = useRef<string | null>(null);
   const [storageInfo, setStorageInfo] = useState<{ freeMB: number; estMin: number | null } | null>(null);
   const [savedFlash, setSavedFlash] = useState(''); // "recording safely saved" confirmation
+  const [selfTest, setSelfTest] = useState<SelfTestState | null>(null);
+  const selfTestBusyRef = useRef(false);
 
   /* Current recording tracking */
   const currentMeetingRef = useRef<{ id: string, date: string, dur: number } | null>(null);
@@ -127,6 +131,7 @@ export function App() {
     let whisperWasDone = false;
     let gemmaWasDone = false;
     let embedderWasDone = false;
+    let autoResumeTimer: number | undefined;
     try {
       if (!localStorage.getItem('mg_onb')) {
         setHasOnboarded(false);
@@ -172,6 +177,22 @@ export function App() {
             });
           }
         });
+
+        // Auto-resume an interrupted transcription (max 2 automatic attempts —
+        // a deterministic crash must not loop; manual Retry is always there).
+        const resumable = loaded.find(m =>
+          m.status === 'transcription_interrupted' && (m.retries || 0) < 2 &&
+          (m.segments || 0) > 0 && !m.transcript);
+        if (resumable && !loadSelfTest()?.running) {
+          autoResumeTimer = window.setTimeout(() => {
+            const fresh = (JSON.parse(localStorage.getItem('mg_h') || '[]') as MeetingRecord[]).find(x => x.id === resumable.id);
+            if (fresh && fresh.status === 'transcription_interrupted' && whisperStateRef.current.done && !transcribingIdRef.current) {
+              setNotice('Resuming the interrupted transcription automatically — your audio is safe either way.');
+              setTimeout(() => setNotice(''), 7000);
+              void retryTranscription(fresh);
+            }
+          }, 8000); // let the whisper re-warm settle first
+        }
       }
       setFolders(store.loadFolders());
       // Normalize any persisted mid-download state (loading can never survive a reload)
@@ -332,6 +353,20 @@ export function App() {
     }
     dlog('app.launch', { version: APP_VERSION, platform: Capacitor.getPlatform() });
 
+    // Self-test resume: a relaunch while a run was active IS a kill-recovery
+    // test — count it and continue from the persisted cursor.
+    let selfTestTimer: number | undefined;
+    const stLoaded = loadSelfTest();
+    if (stLoaded?.running) {
+      stLoaded.kills += 1;
+      saveSelfTest(stLoaded);
+      setSelfTest(stLoaded);
+      dlog('selftest.resumed_after_kill', { cycle: stLoaded.cycle, kills: stLoaded.kills });
+      selfTestTimer = window.setTimeout(() => { void runSelfTest(stLoaded); }, 4000);
+    } else if (stLoaded) {
+      setSelfTest(stLoaded);
+    }
+
     return () => {
       whisperWorkerRef.current?.terminate();
       llmWorkerRef.current?.terminate();
@@ -340,23 +375,25 @@ export function App() {
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('beforeunload', onBeforeUnload);
       appListener?.remove();
+      if (selfTestTimer !== undefined) clearTimeout(selfTestTimer);
+      if (autoResumeTimer !== undefined) clearTimeout(autoResumeTimer);
     };
   }, []);
 
+  /* localStorage is written SYNCHRONOUSLY (it is the durable source of truth
+     the recovery/queue logic reads via getMeeting) — React state follows.
+     Persisting inside the batched state updater caused a race where code
+     right after updateMeeting() read stale data and silently bailed. */
   const save = (r: MeetingRecord) => {
-    setMeetings(prev => {
-      const u = [r, ...prev];
-      localStorage.setItem('mg_h', JSON.stringify(u));
-      return u;
-    });
+    const u = [r, ...store.loadMeetings()];
+    localStorage.setItem('mg_h', JSON.stringify(u));
+    setMeetings(u);
   };
 
   const updateMeeting = (id: string, patch: Partial<MeetingRecord>) => {
-    setMeetings(prev => {
-      const u = prev.map(m => m.id === id ? { ...m, ...patch } : m);
-      localStorage.setItem('mg_h', JSON.stringify(u));
-      return u;
-    });
+    const u = store.loadMeetings().map(m => m.id === id ? { ...m, ...patch } : m);
+    localStorage.setItem('mg_h', JSON.stringify(u));
+    setMeetings(u);
   };
 
   /* ─── v10 transcription queue ───
@@ -373,12 +410,18 @@ export function App() {
     new Promise((resolve, reject) => {
       transcribeResolveRef.current = resolve;
       transcribeRejectRef.current = reject;
-      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio });
+      // Transfer (not copy) the buffer — matters on memory-tight WKWebView
+      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio }, [audio.buffer]);
     });
 
   const runTranscription = async (id: string) => {
     const m = getMeeting(id);
-    if (!m || !m.segments) return;
+    if (!m || !m.segments) {
+      // Never leave an endless spinner: surface the inconsistent state
+      if (m) updateMeeting(id, { status: 'transcription_interrupted', diag: 'No audio segments were found for this meeting when transcription started.' });
+      setProcessing(false);
+      return;
+    }
     if (transcribingIdRef.current) {
       updateMeeting(id, { status: 'queued' });
       setNotice('Another transcription is running — this recording is queued (audio is safe).');
@@ -399,8 +442,11 @@ export function App() {
     const total = m.segments;
     const parts = [...(m.tParts || [])];
     let next = m.tNext || 0;
-    updateMeeting(id, { status: 'transcribing' });
-    dlog('transcribe.start', { id, from: next, total });
+    // Count the ATTEMPT up front: a WebView crash mid-transcription never runs
+    // the catch below, and an uncounted crash would auto-resume forever.
+    const attempt = (m.retries || 0) + 1;
+    updateMeeting(id, { status: 'transcribing', retries: attempt });
+    dlog('transcribe.start', { id, from: next, total, attempt });
 
     try {
       while (next < total) {
@@ -450,12 +496,12 @@ export function App() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      const retries = (getMeeting(id)?.retries || 0) + 1;
+      const attemptNow = getMeeting(id)?.retries || 1;
       updateMeeting(id, {
-        status: retries >= 3 ? 'transcription_failed' : 'transcription_interrupted',
-        tNext: next, tParts: parts, retries, diag: msg,
+        status: attemptNow >= 3 ? 'transcription_failed' : 'transcription_interrupted',
+        tNext: next, tParts: parts, diag: msg,
       });
-      dlogError('transcribe.fail', e, { id, at: next, retries });
+      dlogError('transcribe.fail', e, { id, at: next, attempt: attemptNow });
       setError(`Transcription stopped at segment ${next + 1}/${total}: ${msg}. Your audio is safe — Retry resumes from this point.`);
       setProcessing(false);
     } finally {
@@ -497,6 +543,120 @@ export function App() {
       freeMB: Math.round(free / 1048576),
       estMin: rate > 0 ? Math.round(Math.max(0, free - STORAGE_WARN_BYTES / 5) / rate) : null,
     });
+  };
+
+  /* ─── On-device reliability self-test (Settings → Diagnostics) ───
+     Drives the REAL record→save→transcribe pipeline N times with a synthesized
+     stream. Persists a cursor after every step: a force-quit mid-run resumes
+     on relaunch and is counted as a recovery event. */
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+  const awaitTerminal = async (id: string, maxSec: number): Promise<MeetingRecord | undefined> => {
+    for (let t = 0; t < maxSec; t++) {
+      const m = getMeeting(id);
+      if (m && ['complete', 'transcription_failed', 'transcription_interrupted', 'recovery_required'].includes(m.status || '')) return m;
+      await sleep(1000);
+    }
+    return getMeeting(id);
+  };
+
+  const runSelfTest = async (initial: SelfTestState) => {
+    if (selfTestBusyRef.current) return;
+    selfTestBusyRef.current = true;
+    let st = { ...initial };
+    const persist = async () => { saveSelfTest(st); setSelfTest({ ...st }); await writeResultsFile(st); };
+    dlog('selftest.run', { fromCycle: st.cycle, total: st.total, kills: st.kills });
+
+    try {
+      // Model gate: trigger download and wait (network-dependent, up to 10 min)
+      if (!whisperStateRef.current.done) {
+        dl('whisper');
+        for (let t = 0; t < 600 && !whisperStateRef.current.done; t++) await sleep(1000);
+      }
+
+      // A cycle interrupted by a kill: finish it via the real recovery path
+      if (st.activeMeetingId && !st.results.some(r => r.cycle === st.cycle)) {
+        const m = getMeeting(st.activeMeetingId);
+        if (m) {
+          const t0 = performance.now();
+          if (m.status !== 'complete' && (m.segments || 0) > 0) await retryTranscription(m);
+          const done = await awaitTerminal(st.activeMeetingId, 300);
+          st.results.push({
+            cycle: st.cycle, resumedAfterKill: true,
+            saved: (done?.segments || 0) > 0 && (done?.bytes || 0) > 0,
+            transcribed: done?.status === 'complete',
+            status: done?.status || 'missing', segments: done?.segments, bytes: done?.bytes, dur: done?.dur,
+            ms: Math.round(performance.now() - t0),
+          });
+          remove(st.activeMeetingId);
+          st = { ...st, cycle: st.cycle + 1, activeMeetingId: undefined };
+          await persist();
+        } else {
+          // Meeting shell vanished — record the failure honestly
+          st.results.push({ cycle: st.cycle, saved: false, transcribed: false, status: 'missing', ms: 0, resumedAfterKill: true });
+          st = { ...st, cycle: st.cycle + 1, activeMeetingId: undefined };
+          await persist();
+        }
+      }
+
+      while (st.running && st.cycle <= st.total) {
+        const t0 = performance.now();
+        const { stream, dispose } = makeTestStream();
+        const origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async () => stream;
+        try {
+          await start();
+          const id = currentMeetingRef.current?.id;
+          st = { ...st, activeMeetingId: id };
+          await persist();
+          await sleep(st.recordSecs * 1000);
+          await stop();
+        } finally {
+          navigator.mediaDevices.getUserMedia = origGUM;
+        }
+        const id = st.activeMeetingId;
+        const m = id ? await awaitTerminal(id, 300) : undefined;
+        dispose();
+        st.results.push({
+          cycle: st.cycle,
+          saved: (m?.segments || 0) > 0 && (m?.bytes || 0) > 0,
+          transcribed: m?.status === 'complete',
+          status: m?.status || 'missing', segments: m?.segments, bytes: m?.bytes, dur: m?.dur,
+          ms: Math.round(performance.now() - t0),
+        });
+        dlog('selftest.cycle', { ...st.results[st.results.length - 1] });
+        if (id) remove(id); // keep the device clean across 25 runs
+        st = { ...st, cycle: st.cycle + 1, activeMeetingId: undefined };
+        await persist();
+        // reload current selfTest 'running' flag in case the user pressed Stop
+        const live = loadSelfTest();
+        if (!live?.running) { st.running = false; break; }
+      }
+
+      if (st.cycle > st.total) {
+        st = { ...st, running: false, finishedAt: new Date().toISOString() };
+        await persist();
+        dlog('selftest.finished', summarize(st) as unknown as Record<string, unknown>);
+      }
+    } catch (e) {
+      dlogError('selftest.crash', e, { cycle: st.cycle });
+      st = { ...st, running: false };
+      await persist();
+    } finally {
+      selfTestBusyRef.current = false;
+    }
+  };
+
+  const startSelfTest = () => {
+    const st = newSelfTest(25, 20);
+    saveSelfTest(st);
+    setSelfTest(st);
+    void runSelfTest(st);
+  };
+
+  const stopSelfTest = () => {
+    const st = loadSelfTest();
+    if (st) { st.running = false; saveSelfTest(st); setSelfTest({ ...st }); }
   };
 
   /* ─── Semantic indexing ─── */
@@ -1574,6 +1734,29 @@ export function App() {
               }}>
                 <Download />Export Diagnostics
               </button>
+
+              <div style={{ marginTop: 18 }}>
+                <label className="settings-label"><RefreshCw style={{ width: 14, height: 14 }} /> Reliability Self-Test</label>
+                <p className="settings-hint">
+                  Runs the full record → save → transcribe pipeline 25 times with synthesized
+                  audio (no microphone needed) and verifies every recording is saved and
+                  transcribed. Force-quitting the app mid-run is part of the test — it resumes
+                  automatically and counts the recovery.
+                </p>
+                {selfTest && (
+                  <p className="settings-hint" style={{ color: 'var(--gold-300)', fontWeight: 700 }}>
+                    {selfTest.running
+                      ? `Running — cycle ${Math.min(selfTest.cycle, selfTest.total)}/${selfTest.total}`
+                      : `${selfTest.finishedAt ? 'Finished' : 'Stopped'} — ${selfTest.results.length}/${selfTest.total} cycles`}
+                    {' · '}{summarize(selfTest).saved} saved · {summarize(selfTest).transcribed} transcribed · {selfTest.kills} kill-recover{selfTest.kills === 1 ? 'y' : 'ies'}
+                  </p>
+                )}
+                {selfTest?.running ? (
+                  <button className="btn-download" onClick={stopSelfTest}>Stop Self-Test (keeps results)</button>
+                ) : (
+                  <button className="btn-download" onClick={startSelfTest}><RefreshCw />Run 25× Reliability Self-Test</button>
+                )}
+              </div>
             </div>
           </section>
         )}

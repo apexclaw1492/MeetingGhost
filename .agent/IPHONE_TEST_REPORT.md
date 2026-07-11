@@ -25,7 +25,24 @@ count toward the acceptance criteria.
 | Saved-vs-transcribed distinction | pass ("Recording safely saved — 00:18, 0.3 MB in 3 segments…" banner; separate transcription state) | preview-verified |
 | Storage display while recording | pass ("3.1 GB free" chip; native path uses FreeDiskPlugin — needs device run) | preview-verified |
 | Contrast / 5-tab mobile nav / no clipping at 390pt | pass (screenshots) | preview-verified |
-| Install on physical iPhone | **blocked: device locked during install attempt** — retry pending | — |
+| Install + launch Release build on iPhone 14 Pro (iOS 26.5) | pass (devicectl install + launch, process confirmed) | **device-verified** |
+| Recording on device → segmented save (81s → 2 segments, dur 01:21) | pass (owner screenshot 2026-07-11 07:38) | **device-verified** |
+| Recording survives a REAL transcription crash — audio playable, "interrupted — resumable" chip, Retry button (the core zero-loss criterion) | pass (07:34 recording, 11s, player functional after crash) | **device-verified** |
+| Live per-segment progress on device ("Transcribing 2/2 — 100%") | pass (owner screenshot) | **device-verified** |
+| Segmented player with part label (1/2) on device | pass (owner screenshot) | **device-verified** |
+
+## Bugs found on device (fixed in v10.1)
+
+1. **App exits to home screen when transcription fails** — WKWebView process
+   crash during Whisper inference (suspected OOM). The save-first architecture
+   contained it (audio + state intact, resumable). v10.1 mitigations: 20s
+   inference windows (lower peak memory), single-thread WASM pinned,
+   transferable audio buffers, auto-resume on relaunch with a crash-safe
+   attempt counter (max 2 automatic attempts — a deterministic crash cannot
+   loop). Root cause needs the on-device diagnostics export.
+2. **Text overflow with Display Zoom / large Dynamic Type** — headings wrapped
+   vertically, status chips clipped off-screen. v10.1: headings scale down at
+   ≤480/360pt, meta rows wrap, chips wrap instead of clip.
 
 ## Device test matrix (fill in as each test is run on the phone)
 

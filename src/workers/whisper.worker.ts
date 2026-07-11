@@ -2,6 +2,9 @@ import { pipeline, env } from '@xenova/transformers';
 
 // Disable local model check in browser
 env.allowLocalModels = false;
+// Deterministic single-thread WASM: WKWebView is not cross-origin isolated,
+// and one thread keeps the memory arena as small as possible.
+env.backends.onnx.wasm.numThreads = 1;
 
 let transcriberPromise: Promise<any> | null = null;
 
@@ -34,16 +37,16 @@ self.onmessage = async (e: MessageEvent) => {
       const transcriber = await transcriberPromise;
       self.postMessage({ status: 'processing' });
 
-      // Long audio is processed in 30s windows; report per-chunk progress so
-      // the UI can show a percentage instead of an indefinite spinner.
-      // return_timestamps is REQUIRED for >30s audio: the chunk-stitcher
+      // Long audio is processed in 20s windows (smaller peak memory than 30s —
+      // WKWebView kills the process on OOM); progress posted per window.
+      // return_timestamps is REQUIRED for >chunk-length audio: the stitcher
       // aligns windows by timestamp tokens — without it long transcripts
       // collapse to a few words. (language/task omitted: tiny.en is EN-only.)
-      const totalChunks = Math.max(1, Math.ceil((audio.length / 16000) / 25));
+      const totalChunks = Math.max(1, Math.ceil((audio.length / 16000) / 16));
       let seenChunks = 0;
       const result = await transcriber(audio, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
+        chunk_length_s: 20,
+        stride_length_s: 4,
         return_timestamps: true,
         chunk_callback: () => {
           seenChunks++;
