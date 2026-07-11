@@ -1347,3 +1347,63 @@ body {
   margin-top: 10px;
 }
 .retry-btn svg { width: 14px; height: 14px; }
+
+/* ═══════════════════
+   v10 — RELIABILITY UI
+   ═══════════════════ */
+
+.storage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-abyss);
+  border: 1px solid var(--border-ghost);
+}
+.storage-chip svg { width: 13px; height: 13px; color: var(--gold-400); }
+
+.saved-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  line-height: 1.5;
+}
+.saved-banner svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+
+.status-chip.saved {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.diag-line {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xs);
+  border: 1px dashed var(--border-subtle);
+}
+
+.part-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.proc-actions { display: inline-flex; gap: 6px; margin-left: 10px; }
+.proc-actions .btn-ghost { font-size: 11px; padding: 4px 10px; }

@@ -26,6 +26,10 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MeetingGhost requires microphone access to record meetings and generate transcripts.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

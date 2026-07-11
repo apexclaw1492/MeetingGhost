@@ -7,18 +7,40 @@ export interface ActionItem {
   done: boolean;
 }
 
+/* Persistent recording/processing state machine (v10). Every transition is
+   written to localStorage so the app reconstructs correct state after a
+   crash, force-quit, WebView reload, or device restart.
+   Legacy v9 values ('processing'/'done'/'error') are normalized on load. */
+export type MeetingStatus =
+  | 'recording'                  // segments streaming to durable storage
+  | 'saved'                      // audio finalized+verified; not yet transcribed
+  | 'queued'                     // waiting for transcription to start
+  | 'transcribing'               // per-segment transcription in flight
+  | 'transcription_interrupted'  // resumable from checkpoint (tNext)
+  | 'transcription_failed'       // retries exhausted; audio intact
+  | 'complete'                   // transcript done (summary/title may still stream in)
+  | 'recovery_required'          // crashed before any audio segment was flushed
+  | 'processing' | 'done' | 'error'; // legacy v9
+
 export interface MeetingRecord {
   id: string;
   date: string;
-  dur: number;
+  dur: number;                 // seconds, from recorded audio (not UI time)
   title: string;
   transcript: string;
   summary: string;
   folderId?: string;
   actionItems?: ActionItem[];
-  /* Save-first pipeline: audio is persisted before transcription starts.
-     'processing' = transcription in flight, 'error' = interrupted/failed (retryable). */
-  status?: 'processing' | 'done' | 'error';
+  status?: MeetingStatus;
+  segments?: number;           // verified segment count on disk
+  bytes?: number;              // verified audio bytes on disk
+  mimeType?: string;           // segment container type
+  audioKind?: 'segments' | 'single'; // 'single' = legacy v9 blob / uploaded file
+  tNext?: number;              // transcription checkpoint: next segment index
+  tParts?: string[];           // per-segment transcripts until assembly
+  retries?: number;
+  recovered?: boolean;         // surfaced after crash recovery
+  diag?: string;               // last sanitized error for this meeting
 }
 
 export interface Folder {

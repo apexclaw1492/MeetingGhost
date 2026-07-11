@@ -1,5 +1,5 @@
 # Current Architectural State
-**Last Updated:** MeetingGhost Gold v9.1 (2026-07-05)
+**Last Updated:** MeetingGhost Gold v10.0 (2026-07-11)
 
 ## Tech Stack
 - **Framework:** React 19 (Vite 8, TypeScript)
@@ -36,21 +36,43 @@ without this, transcription dies after reload ("Transcriber not initialized").
   (per-meeting chunk embeddings), `audio` store (recording blobs for playback).
 - Backup export strips `claudeKey` and `githubToken`.
 
-### Pipeline (v9.1: save-first — nothing can be lost)
-record/upload → `beginMeeting`: record saved to localStorage with
-`status:'processing'` AND audio blob persisted to IDB **before any AI work** →
-resample 16kHz → whisper worker (chunked, `return_timestamps:true`, per-chunk
-progress) → transcript written via `updateMeeting` + `status:'done'` + semantic
-index → summary/title stream in as further updates.
-On startup, stale `status:'processing'` records flip to `'error'` (retryable);
-History shows a status chip and a "Retry Transcription" button backed by the
-stored audio. Screen wake-lock held while recording/processing.
+### Pipeline (v10: segmented save-first — durable during recording)
+`start()` creates the meeting record (status `recording`) BEFORE capture begins.
+`SegmentedRecorder` (utils/recorder.ts) rotates MediaRecorder every 60s so each
+segment is an independently decodable file, written + size-verified to durable
+storage (utils/audioStore.ts: native = Capacitor Filesystem `Directory.Data`,
+web fallback = IndexedDB) the moment it closes. visibilitychange / pagehide /
+appStateChange / track-mute all force an immediate flush of the in-flight
+segment. Storage checked at start + every segment (app-local Swift plugin
+`FreeDiskPlugin` for true device free space; warn <500MB, auto-stop <100MB).
+`stop()` awaits every verified write, marks `saved`, THEN queues transcription.
+
+Transcription (`runTranscription`) is a separate resumable stage over saved
+audio only: one segment at a time (bounded memory), `tNext`/`tParts` checkpoint
+persisted after EVERY segment, 5-min stall watchdog, pause/cancel (cancel keeps
+audio), retries counted (3 → `transcription_failed`), whisper `worker.onerror`
+surfaces crashes. Then summary/title stream in as updates (status stays
+`complete` once the transcript is saved).
+
+State machine (store.ts `MeetingStatus`): recording → saved → queued →
+transcribing → complete, with transcription_interrupted / transcription_failed /
+recovery_required. On launch, states are reconstructed: in-flight statuses
+normalize to interrupted (resumable), `recording` reconciles against segments
+actually on disk (`countSegmentsOnDisk`).
+
+Diagnostics (utils/diag.ts): 600-event ring buffer in localStorage — state
+transitions, segment writes, storage, lifecycle, worker events, sanitized
+errors; never meeting content. Settings → Export Diagnostics.
 
 **CRITICAL (learned the hard way):** whisper transcription of >30s audio MUST
 pass `return_timestamps: true` — the chunk stitcher aligns 30s windows by
 timestamp tokens; without it a 2-minute recording collapses to a few words.
-This was the iPhone "recorded 2 min, got nothing" bug. Test with >30s audio,
-not just short clips.
+Test with >30s audio, not just short clips.
+
+**iOS specifics:** Info.plist has `UIBackgroundModes: audio` (recording with
+screen locked); local Capacitor plugin registered via MainViewController
+(storyboard customClass) — new Swift files must be added to project.pbxproj
+manually (no synchronized groups).
 
 ### Feature modules (`src/utils/`)
 - `intelligence.ts` — summary templates, action-item parsing, Claude API calls

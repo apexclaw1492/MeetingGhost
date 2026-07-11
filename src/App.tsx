@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { App as CapApp } from '@capacitor/app';
 import {
   Mic, Square, Loader2, Sparkles, Brain, Copy, Check,
   Share2, ShieldCheck, Trash2, Clock, Smartphone, Globe,
@@ -24,7 +25,12 @@ import type { Chunk } from './utils/vectors';
 import { createGitHubIssue, buildFollowUpICS, buildMailto, meetingToMarkdown } from './utils/integrations';
 import { idb } from './utils/idb';
 import { AudioPlayer } from './components/AudioPlayer';
+import { SegmentedRecorder, SEGMENT_MS } from './utils/recorder';
+import { writeSegment, readSegment, countSegmentsOnDisk, deleteMeetingAudio, freeBytes, STORAGE_WARN_BYTES } from './utils/audioStore';
+import { log as dlog, logError as dlogError, exportDiagnostics } from './utils/diag';
 import './App.css';
+
+export const APP_VERSION = 'v10.0';
 
 interface Model {
   name: string;
@@ -71,8 +77,6 @@ export function App() {
     name: 'Semantic Search Engine', size: '25 MB', done: false, loading: false, progress: 0
   });
 
-  const recRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
@@ -96,9 +100,17 @@ export function App() {
   const chatResolverRef = useRef<((text: string) => void) | null>(null);
   const [audioIds, setAudioIds] = useState<Set<string>>(new Set());
   const [procStatus, setProcStatus] = useState('');
-  const lastDurRef = useRef(0);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
   useEffect(() => { embedderStateRef.current = embedder; }, [embedder]);
+
+  /* v10 reliability: segmented recorder + resumable transcription queue */
+  const recorderRef = useRef<SegmentedRecorder | null>(null);
+  const transcribeResolveRef = useRef<((text: string) => void) | null>(null);
+  const transcribeRejectRef = useRef<((e: Error) => void) | null>(null);
+  const queueFlagsRef = useRef<{ cancel: boolean; pause: boolean }>({ cancel: false, pause: false });
+  const transcribingIdRef = useRef<string | null>(null);
+  const [storageInfo, setStorageInfo] = useState<{ freeMB: number; estMin: number | null } | null>(null);
+  const [savedFlash, setSavedFlash] = useState(''); // "recording safely saved" confirmation
 
   /* Current recording tracking */
   const currentMeetingRef = useRef<{ id: string, date: string, dur: number } | null>(null);
@@ -121,13 +133,45 @@ export function App() {
       }
       const h = localStorage.getItem('mg_h');
       if (h) {
-        // Meetings that were mid-transcription when the app was killed (iOS
-        // suspends/kills the WebView freely) become retryable, not lost.
-        const loaded: MeetingRecord[] = JSON.parse(h).map((m: MeetingRecord) =>
-          m.status === 'processing' ? { ...m, status: 'error' as const } : m
-        );
+        // Reconstruct correct states after crash/force-quit/reload/restart.
+        // Legacy v9 statuses normalize; in-flight states become recoverable.
+        const loaded: MeetingRecord[] = JSON.parse(h).map((m: MeetingRecord) => {
+          const audioKind = m.audioKind || (m.segments ? 'segments' : 'single');
+          switch (m.status) {
+            case 'done': return { ...m, audioKind, status: 'complete' as const };
+            case 'processing': case 'error':
+              return { ...m, audioKind, status: 'transcription_interrupted' as const, recovered: m.status === 'processing' };
+            case 'queued': case 'transcribing':
+              return { ...m, audioKind, status: 'transcription_interrupted' as const, recovered: true };
+            case 'recording':
+              // Reconciled against segments on disk below (async)
+              return { ...m, audioKind, status: 'recovery_required' as const, recovered: true };
+            default: return { ...m, audioKind };
+          }
+        });
         localStorage.setItem('mg_h', JSON.stringify(loaded));
         setMeetings(loaded);
+
+        // Disk reconciliation: a meeting killed mid-recording keeps every
+        // segment that was flushed+verified; only sub-60s tail can be missing.
+        loaded.filter(m => m.status === 'recovery_required').forEach(async (m) => {
+          const segs = await countSegmentsOnDisk(m.id);
+          dlog('recover.recording', { id: m.id, segsOnDisk: segs, segsBelieved: m.segments || 0 });
+          if (segs > 0) {
+            updateMeeting(m.id, {
+              segments: segs,
+              status: 'transcription_interrupted',
+              diag: `Recovered after interruption: ${segs} audio segment(s) preserved. Up to ${Math.round(SEGMENT_MS / 1000)}s of trailing audio may be missing.`,
+            });
+            setAudioIds(prev => new Set(prev).add(m.id));
+            setNotice('A recording interrupted by an app shutdown was recovered — see History.');
+            setTimeout(() => setNotice(''), 8000);
+          } else {
+            updateMeeting(m.id, {
+              diag: 'The app was terminated before any audio segment could be written. No audio survived.',
+            });
+          }
+        });
       }
       setFolders(store.loadFolders());
       // Normalize any persisted mid-download state (loading can never survive a reload)
@@ -191,31 +235,28 @@ export function App() {
           return next;
         });
       } else if (status === 'transcribe_progress') {
-        setProcStatus(`Transcribing… ${Math.round((current / total) * 100)}%`);
+        setProcStatus(prev => {
+          const seg = prev.match(/^Transcribing (\d+\/\d+)/)?.[1];
+          return `Transcribing ${seg || ''} — ${Math.round((current / total) * 100)}%`.replace('  ', ' ');
+        });
       } else if (status === 'complete') {
-        setTranscript(text);
-        transcriptRef.current = text;
-        const m = currentMeetingRef.current;
-        if (!text || !text.trim() || text.trim() === '[BLANK_AUDIO]') {
-          setError('No speech detected in the audio. The recording is saved in History.');
-          if (m) updateMeeting(m.id, { status: 'done' });
-          setProcessing(false);
-        } else {
-          // The critical asset: persist the transcript the moment it exists.
-          // Summary and title stream in afterwards as updates to the same record.
-          if (m) {
-            updateMeeting(m.id, { transcript: text, status: 'done' });
-            indexMeeting({ id: m.id, transcript: text } as MeetingRecord).catch(() => { /* embedder optional */ });
-          }
-          setProcStatus('Summarizing…');
-          runSummarization(text);
-        }
+        // Settled by the transcription queue (runTranscription) — one segment done
+        transcribeResolveRef.current?.(text);
+        transcribeResolveRef.current = null;
+        transcribeRejectRef.current = null;
       } else if (status === 'error') {
-        const m = currentMeetingRef.current;
-        if (m) updateMeeting(m.id, { status: 'error' });
-        setError(`Transcription failed: ${message}. Your recording is saved in History — tap Retry there.`);
-        setProcessing(false);
+        transcribeRejectRef.current?.(new Error(message));
+        transcribeResolveRef.current = null;
+        transcribeRejectRef.current = null;
       }
+    };
+
+    // A crashed worker must surface, never hang the queue forever
+    whisperWorkerRef.current.onerror = (e) => {
+      dlogError('worker.whisper.crash', e.message || 'worker error');
+      transcribeRejectRef.current?.(new Error(`Transcription worker crashed: ${e.message || 'unknown'}`));
+      transcribeResolveRef.current = null;
+      transcribeRejectRef.current = null;
     };
 
     llmWorkerRef.current.onmessage = (e) => {
@@ -258,12 +299,47 @@ export function App() {
     if (embedderWasDone) embedWorkerRef.current.postMessage({ type: 'init' });
 
     indexedMeetingIds().then(ids => setIndexedCount(ids.size)).catch(() => { /* noop */ });
-    idb.keys('audio').then(keys => setAudioIds(new Set(keys.map(String)))).catch(() => { /* noop */ });
+    // Playable audio: legacy IDB blobs/segments AND meetings with verified segments
+    idb.keys('audio').then(keys => setAudioIds(prev => {
+      const n = new Set(prev);
+      keys.forEach(k => n.add(String(k).split(':')[0]));
+      try {
+        (JSON.parse(localStorage.getItem('mg_h') || '[]') as MeetingRecord[])
+          .filter(m => (m.segments || 0) > 0).forEach(m => n.add(m.id));
+      } catch { /* noop */ }
+      return n;
+    })).catch(() => { /* noop */ });
+
+    /* iOS lifecycle: flush the in-flight segment BEFORE the WebView can be
+       suspended, so backgrounding/locking loses nothing already spoken. */
+    const onVisibility = () => {
+      dlog(document.visibilityState === 'hidden' ? 'app.hidden' : 'app.visible');
+      if (document.visibilityState === 'hidden') recorderRef.current?.flushCurrent();
+    };
+    const onPageHide = () => { dlog('app.pagehide'); recorderRef.current?.flushCurrent(); };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (recorderRef.current?.isActive) { e.preventDefault(); recorderRef.current.flushCurrent(); }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    let appListener: { remove: () => void } | undefined;
+    if (Capacitor.isNativePlatform()) {
+      CapApp.addListener('appStateChange', ({ isActive }) => {
+        dlog('app.state', { isActive });
+        if (!isActive) recorderRef.current?.flushCurrent();
+      }).then(l => { appListener = l; }).catch(() => { /* noop */ });
+    }
+    dlog('app.launch', { version: APP_VERSION, platform: Capacitor.getPlatform() });
 
     return () => {
       whisperWorkerRef.current?.terminate();
       llmWorkerRef.current?.terminate();
       embedWorkerRef.current?.terminate();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      appListener?.remove();
     };
   }, []);
 
@@ -283,58 +359,144 @@ export function App() {
     });
   };
 
-  /* ─── Save-first pipeline ───
-     The recording is persisted (record + audio blob) BEFORE any decoding or
-     AI work begins, so an iOS WebView suspension/kill can never lose it. */
-  const beginMeeting = async (audio: Blob, dur: number) => {
-    setProcessing(true);
-    setProcStatus('Saving recording…');
-    setError('');
-    const id = Date.now().toString();
-    const date = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    currentMeetingRef.current = { id, date, dur };
-    save({ id, date, dur, title: 'Untitled Meeting', transcript: '', summary: '', status: 'processing' });
-    try {
-      await idb.put('audio', id, audio);
-      setAudioIds(prev => new Set(prev).add(id));
-    } catch { /* storage full — record still saved, just without replay/retry audio */ }
-    await transcribeMeeting(id, audio, dur);
+  /* ─── v10 transcription queue ───
+     A separate, resumable stage that operates ONLY on already-saved audio.
+     One segment at a time (bounded memory), checkpointed after every segment,
+     resumable from tNext after any interruption. Failure never touches audio. */
+
+  const getMeeting = (id: string): MeetingRecord | undefined => {
+    try { return (JSON.parse(localStorage.getItem('mg_h') || '[]') as MeetingRecord[]).find(x => x.id === id); }
+    catch { return undefined; }
   };
 
-  const transcribeMeeting = async (id: string, audio: Blob, dur: number) => {
+  const transcribeFloat32 = (audio: Float32Array): Promise<string> =>
+    new Promise((resolve, reject) => {
+      transcribeResolveRef.current = resolve;
+      transcribeRejectRef.current = reject;
+      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio });
+    });
+
+  const runTranscription = async (id: string) => {
+    const m = getMeeting(id);
+    if (!m || !m.segments) return;
+    if (transcribingIdRef.current) {
+      updateMeeting(id, { status: 'queued' });
+      setNotice('Another transcription is running — this recording is queued (audio is safe).');
+      setTimeout(() => setNotice(''), 5000);
+      return;
+    }
+    if (!whisperStateRef.current.done) {
+      updateMeeting(id, { status: 'transcription_interrupted', diag: 'Whisper model not installed — download it in AI Models, then tap Retry.' });
+      setNotice('Recording saved. Install the Whisper model (AI Models tab) to transcribe it.');
+      setTimeout(() => setNotice(''), 8000);
+      return;
+    }
+
+    transcribingIdRef.current = id;
+    queueFlagsRef.current = { cancel: false, pause: false };
+    currentMeetingRef.current = { id, date: m.date, dur: m.dur };
     setProcessing(true);
+    const total = m.segments;
+    const parts = [...(m.tParts || [])];
+    let next = m.tNext || 0;
+    updateMeeting(id, { status: 'transcribing' });
+    dlog('transcribe.start', { id, from: next, total });
+
     try {
-      if (!whisperStateRef.current.done) {
-        throw new Error('Whisper model is not installed — download it in the AI Models tab');
+      while (next < total) {
+        if (queueFlagsRef.current.cancel || queueFlagsRef.current.pause) {
+          const paused = queueFlagsRef.current.pause;
+          updateMeeting(id, {
+            status: paused ? 'transcription_interrupted' : 'saved',
+            tNext: next, tParts: parts,
+            diag: paused ? 'Paused — Retry resumes from the last completed segment.' : 'Transcription canceled; the audio is kept.',
+          });
+          dlog('transcribe.userstop', { id, paused, at: next });
+          setProcessing(false);
+          return;
+        }
+        setProcStatus(`Transcribing ${next + 1}/${total}`);
+        const blob = await readSegment(id, next, m.mimeType || 'audio/mp4');
+        if (!blob) throw new Error(`audio segment ${next + 1} could not be read from storage`);
+        const audioF32 = await getAudioData([blob], 16000);
+        if (next === 0 && !m.dur) {
+          updateMeeting(id, { dur: Math.round((audioF32.length / 16000) * total) });
+        }
+        // Watchdog: a ≤60s segment must never hang the queue forever
+        const text = await Promise.race([
+          transcribeFloat32(audioF32),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error('transcription stalled (5-minute timeout)')), 300_000)),
+        ]);
+        parts[next] = (text || '').replace(/\[BLANK_AUDIO\]/g, '').trim();
+        next++;
+        // Checkpoint after EVERY segment — resume never repeats finished work
+        updateMeeting(id, { tNext: next, tParts: parts });
+        dlog('transcribe.segment.done', { id, seg: next - 1, chars: parts[next - 1].length });
       }
-      setProcStatus('Preparing audio…');
-      const audioFloat32 = await getAudioData([audio], 16000);
-      // Uploads (and any timer glitch) get their true duration from the audio itself
-      const secs = Math.round(audioFloat32.length / 16000);
-      if (!dur && secs) updateMeeting(id, { dur: secs });
-      setProcStatus('Transcribing…');
-      whisperWorkerRef.current?.postMessage({ type: 'transcribe', audio: audioFloat32 });
+
+      const full = parts.join(' ').replace(/\s{2,}/g, ' ').trim();
+      updateMeeting(id, {
+        transcript: full, status: 'complete', tParts: undefined, tNext: undefined, retries: undefined,
+        diag: full ? undefined : 'No speech detected in the audio — the recording is kept.',
+      });
+      setTranscript(full); transcriptRef.current = full;
+      dlog('transcribe.complete', { id, chars: full.length });
+      if (full) {
+        indexMeeting({ id, transcript: full } as MeetingRecord).catch(() => { /* embedder optional */ });
+        setProcStatus('Summarizing…');
+        runSummarization(full); // llm/title flow clears `processing` when done
+      } else {
+        setProcessing(false);
+      }
     } catch (e: unknown) {
-      updateMeeting(id, { status: 'error' });
-      setError(`Processing error: ${e instanceof Error ? e.message : String(e)}. Your recording is saved in History — tap Retry there.`);
+      const msg = e instanceof Error ? e.message : String(e);
+      const retries = (getMeeting(id)?.retries || 0) + 1;
+      updateMeeting(id, {
+        status: retries >= 3 ? 'transcription_failed' : 'transcription_interrupted',
+        tNext: next, tParts: parts, retries, diag: msg,
+      });
+      dlogError('transcribe.fail', e, { id, at: next, retries });
+      setError(`Transcription stopped at segment ${next + 1}/${total}: ${msg}. Your audio is safe — Retry resumes from this point.`);
       setProcessing(false);
+    } finally {
+      transcribingIdRef.current = null;
+      // A queued meeting (recorded while we were busy) starts automatically
+      const queued = (JSON.parse(localStorage.getItem('mg_h') || '[]') as MeetingRecord[]).find(x => x.status === 'queued');
+      if (queued && !queueFlagsRef.current.cancel) void runTranscription(queued.id);
     }
   };
 
   const retryTranscription = async (m: MeetingRecord) => {
-    if (processing) {
-      setNotice('Another transcription is already running — try again when it finishes.');
-      setTimeout(() => setNotice(''), 4000);
-      return;
+    if (transcribingIdRef.current === m.id) return;
+    // Legacy v9 meetings stored one blob under the plain id — migrate to seg-0
+    if (m.audioKind === 'single' || !m.segments) {
+      const legacy = await idb.get<Blob>('audio', m.id).catch(() => null);
+      if (!legacy) { setError('No stored audio found for this meeting.'); return; }
+      try {
+        await writeSegment(m.id, 0, legacy);
+        updateMeeting(m.id, { audioKind: 'segments', segments: 1, bytes: legacy.size, mimeType: legacy.type || 'audio/mp4' });
+      } catch (e: unknown) {
+        setError(`Could not prepare audio for retry: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
     }
-    const blob = await idb.get<Blob>('audio', m.id).catch(() => null);
-    if (!blob) {
-      setError('No stored audio found for this meeting.');
-      return;
-    }
-    currentMeetingRef.current = { id: m.id, date: m.date, dur: m.dur };
-    updateMeeting(m.id, { status: 'processing' });
-    await transcribeMeeting(m.id, blob, m.dur);
+    updateMeeting(m.id, { status: 'queued', diag: undefined });
+    await runTranscription(m.id);
+  };
+
+  const pauseTranscription = () => { queueFlagsRef.current.pause = true; setProcStatus('Pausing after current segment…'); };
+  const cancelTranscription = () => { queueFlagsRef.current.cancel = true; setProcStatus('Stopping — audio will be kept…'); };
+
+  const refreshStorageInfo = async () => {
+    const free = await freeBytes();
+    if (free === null) { setStorageInfo(null); return; }
+    const r = recorderRef.current;
+    // bytes/min from this session once we have a sample, else ~0.25 MB/min AAC mono
+    const rate = r && r.recordedMs > 5000 ? r.totalBytes / (r.recordedMs / 60000) : 250_000;
+    setStorageInfo({
+      freeMB: Math.round(free / 1048576),
+      estMin: rate > 0 ? Math.round(Math.max(0, free - STORAGE_WARN_BYTES / 5) / rate) : null,
+    });
   };
 
   /* ─── Semantic indexing ─── */
@@ -469,7 +631,7 @@ export function App() {
       .then(() => indexedMeetingIds())
       .then(ids => setIndexedCount(ids.size))
       .catch(() => { /* noop */ });
-    idb.del('audio', id)
+    deleteMeetingAudio(id)
       .then(() => setAudioIds(prev => { const n = new Set(prev); n.delete(id); return n; }))
       .catch(() => { /* noop */ });
   };
@@ -612,59 +774,148 @@ export function App() {
     setSettings(s => ({ ...s, vizTheme: order[(order.indexOf(s.vizTheme) + 1) % order.length] }));
   };
 
-  /* Recording */
+  /* Recording — v10 segmented save-first.
+     The meeting record exists from second zero; audio streams to durable
+     storage in ≤60s verified segments while recording. */
   const start = async () => {
+    if (recorderRef.current?.isActive) return; // no concurrent sessions
+    if (transcribingIdRef.current) {
+      setNotice('Transcription is running — it will continue in the background while you record.');
+      setTimeout(() => setNotice(''), 4000);
+    }
     if (Capacitor.isNativePlatform()) await Haptics.impact({ style: ImpactStyle.Heavy });
-    setError(''); setTranscript(''); setSummary(''); setTime(0); chunksRef.current = [];
+    setError(''); setTranscript(''); setSummary(''); setTime(0); setSavedFlash('');
     transcriptRef.current = ''; summaryRef.current = '';
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-      recRef.current = mr;
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        if (audioCtxRef.current) audioCtxRef.current.close();
-        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-        if (chunksRef.current.length === 0) {
-          setError('No audio was captured — please check microphone permission and try again.');
-          return;
-        }
-        const blob = new Blob(chunksRef.current, { type: chunksRef.current[0].type || 'audio/mp4' });
-        await beginMeeting(blob, lastDurRef.current);
-      };
 
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      dlogError('rec.permission.denied', e);
+      setError(Capacitor.isNativePlatform()
+        ? 'Microphone access denied. Open Settings → MeetingGhost → enable Microphone, then return here and try again.'
+        : 'Microphone access denied. Allow microphone access for this site and try again.');
+      return;
+    }
+
+    const id = Date.now().toString();
+    const date = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    currentMeetingRef.current = { id, date, dur: 0 };
+    save({ id, date, dur: 0, title: 'Untitled Meeting', transcript: '', summary: '', status: 'recording', audioKind: 'segments', segments: 0, bytes: 0 });
+    dlog('meeting.created', { id });
+
+    const rec = new SegmentedRecorder(id, {
+      onSegmentSaved: (info) => {
+        updateMeeting(id, {
+          segments: info.seg + 1,
+          bytes: rec.totalBytes,
+          dur: Math.round(rec.recordedMs / 1000),
+          mimeType: rec.mimeType,
+        });
+        setAudioIds(prev => new Set(prev).add(id));
+        void refreshStorageInfo();
+      },
+      onSegmentFailed: (seg, err) => {
+        setError(`Audio segment ${seg + 1} failed to save (${err}). Previously saved audio is intact.`);
+        updateMeeting(id, { diag: `segment ${seg} write failed: ${err}` });
+      },
+      onStorageWarning: (freeB) => {
+        setNotice(`Storage is getting low — ${Math.round(freeB / 1048576)} MB free. Recording continues; consider freeing space.`);
+        setTimeout(() => setNotice(''), 8000);
+      },
+      onAutoStop: (reason) => { setError(reason); void stop(); },
+      onInterruption: (kind) => {
+        dlog('rec.interruption.ui', { kind });
+        setNotice('Audio input was interrupted (call, Siri, or route change). Completed audio is saved.');
+        setTimeout(() => setNotice(''), 6000);
+      },
+    });
+    recorderRef.current = rec;
+
+    try {
+      await rec.start(stream);
+    } catch (e: unknown) {
+      stream.getTracks().forEach(t => t.stop());
+      recorderRef.current = null;
+      remove(id); // nothing was recorded — drop the empty shell
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+
+    // Visualizer (display only — independent of the recording path)
+    try {
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 64;
       source.connect(analyser);
-      
       audioCtxRef.current = audioCtx;
       analyserRef.current = analyser;
       dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
-
-      mr.start(1000); setRecording(true);
-      timerRef.current = window.setInterval(() => setTime(t => t + 1), 1000);
       drawWaveform();
-    } catch { setError('Microphone access denied. Enable the microphone for MeetingGhost in your device Settings.'); }
+    } catch { /* viz is optional */ }
+
+    setRecording(true);
+    timerRef.current = window.setInterval(() => setTime(t => t + 1), 1000);
+    void refreshStorageInfo();
   };
 
   const stop = async () => {
     if (Capacitor.isNativePlatform()) await Haptics.impact({ style: ImpactStyle.Medium });
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    lastDurRef.current = time; // onstop fires from a stale closure — pass duration via ref
-    if (recRef.current?.state !== 'inactive') recRef.current?.stop();
     setRecording(false);
+    if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => { /* */ }); audioCtxRef.current = null; }
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+
+    const rec = recorderRef.current;
+    const m = currentMeetingRef.current;
+    recorderRef.current = null;
+    if (!rec || !m) return;
+
+    setProcessing(true);
+    setProcStatus('Finalizing recording…');
+    // Waits for the in-flight segment AND every verified write to durable storage
+    const result = await rec.stop();
+    const dur = Math.round(result.recordedMs / 1000);
+
+    if (result.segments === 0 || result.totalBytes === 0) {
+      updateMeeting(m.id, { status: 'recovery_required', dur, diag: 'The microphone produced no data — nothing could be saved.' });
+      setError('No audio was captured. Check that the microphone works and permissions are granted.');
+      setProcessing(false);
+      return;
+    }
+
+    updateMeeting(m.id, { status: 'saved', dur, segments: result.segments, bytes: result.totalBytes, mimeType: result.mimeType });
+    dlog('meeting.saved', { id: m.id, segments: result.segments, bytes: result.totalBytes, dur });
+    setSavedFlash(`Recording safely saved — ${fmt(dur)}, ${(result.totalBytes / 1048576).toFixed(1)} MB in ${result.segments} segment${result.segments > 1 ? 's' : ''}. Transcription is a separate step and can always be retried.`);
+    // Transcription: separate stage over saved audio only
+    void runTranscription(m.id);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setError(''); setTranscript(''); setSummary(''); setTime(0);
-    transcriptRef.current = ''; summaryRef.current = '';
-    await beginMeeting(file, 0);
     e.target.value = ''; // allow re-uploading the same file
+    setError(''); setTranscript(''); setSummary(''); setTime(0); setSavedFlash('');
+    transcriptRef.current = ''; summaryRef.current = '';
+
+    const id = Date.now().toString();
+    const date = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    currentMeetingRef.current = { id, date, dur: 0 };
+    setProcessing(true);
+    setProcStatus('Saving audio…');
+    save({ id, date, dur: 0, title: 'Untitled Meeting', transcript: '', summary: '', status: 'recording', audioKind: 'segments', segments: 0, bytes: 0 });
+    try {
+      await writeSegment(id, 0, file); // durable + verified before anything else
+      updateMeeting(id, { status: 'saved', segments: 1, bytes: file.size, mimeType: file.type || 'audio/mp4' });
+      setAudioIds(prev => new Set(prev).add(id));
+      setSavedFlash('Audio saved — starting transcription.');
+      void runTranscription(id);
+    } catch (err: unknown) {
+      updateMeeting(id, { status: 'recovery_required', diag: `import failed: ${err instanceof Error ? err.message : String(err)}` });
+      setError(`Could not save the imported audio: ${err instanceof Error ? err.message : String(err)}`);
+      setProcessing(false);
+    }
   };
 
   /* Keep the screen awake while recording or transcribing — iOS aggressively
@@ -883,11 +1134,29 @@ export function App() {
                 </div>
               )}
 
+              {recording && storageInfo && (
+                <div className="storage-chip">
+                  <HardDrive />
+                  <span>
+                    {storageInfo.freeMB >= 1024 ? `${(storageInfo.freeMB / 1024).toFixed(1)} GB` : `${storageInfo.freeMB} MB`} free
+                    {storageInfo.estMin !== null && storageInfo.estMin < 6000 && ` · ~${storageInfo.estMin >= 60 ? `${Math.floor(storageInfo.estMin / 60)}h ${storageInfo.estMin % 60}m` : `${storageInfo.estMin} min`} recordable`}
+                  </span>
+                </div>
+              )}
               {processing && (
                 <div className="processing-chip">
                   <Loader2 className="spin" />
                   <span>{procStatus || 'Processing on-device…'}</span>
+                  {transcribingIdRef.current && (
+                    <span className="proc-actions">
+                      <button className="btn-ghost" onClick={pauseTranscription}>Pause</button>
+                      <button className="btn-ghost" onClick={cancelTranscription}>Cancel</button>
+                    </span>
+                  )}
                 </div>
+              )}
+              {savedFlash && (
+                <div className="saved-banner"><CheckCircle2 />{savedFlash}</div>
               )}
               {error && <div className="error-banner">{error}</div>}
             </div>
@@ -1014,11 +1283,26 @@ export function App() {
                         <strong style={{ color: 'var(--gold-200)', display: 'block', fontSize: '15px' }}>{m.title || 'Untitled Meeting'}</strong>
                         <span className="history-date">{m.date}</span>
                         <span className="history-dur">Duration: {fmt(m.dur)}</span>
-                        {m.status === 'processing' && (
-                          <span className="status-chip processing"><Loader2 className="spin" />{procStatus || 'Transcribing…'}</span>
+                        {m.status === 'recording' && (
+                          <span className="status-chip processing"><Mic />Recording… {m.segments || 0} segment{(m.segments || 0) !== 1 ? 's' : ''} saved</span>
                         )}
-                        {m.status === 'error' && (
-                          <span className="status-chip error">Transcription interrupted</span>
+                        {(m.status === 'saved' || m.status === 'queued') && !m.transcript && (
+                          <span className="status-chip saved"><CheckCircle2 />Audio saved{m.status === 'queued' ? ' — queued for transcription' : ' — not yet transcribed'}</span>
+                        )}
+                        {m.status === 'transcribing' && (
+                          <span className="status-chip processing"><Loader2 className="spin" />{transcribingIdRef.current === m.id ? (procStatus || 'Transcribing…') : 'Transcribing…'}</span>
+                        )}
+                        {m.status === 'transcription_interrupted' && (
+                          <span className="status-chip error">Transcription interrupted{typeof m.tNext === 'number' && m.segments ? ` at ${Math.min(m.tNext + 1, m.segments)}/${m.segments}` : ''} — resumable</span>
+                        )}
+                        {m.status === 'transcription_failed' && (
+                          <span className="status-chip error">Transcription failed after {m.retries} tries — audio intact</span>
+                        )}
+                        {m.status === 'recovery_required' && (
+                          <span className="status-chip error">Interrupted before audio could be saved</span>
+                        )}
+                        {m.status === 'complete' && !m.transcript && (
+                          <span className="status-chip saved"><CheckCircle2 />Audio saved — no speech detected</span>
                         )}
                       </div>
                       <div className="history-btns">
@@ -1042,14 +1326,17 @@ export function App() {
                         <button className="btn-sq del" onClick={() => remove(m.id)} title="Delete"><Trash2 /></button>
                       </div>
                     </div>
-                    {m.transcript
-                      ? <div className="history-snippet">{m.transcript}</div>
-                      : m.status === 'error' && audioIds.has(m.id) && (
-                          <button className="btn-gold retry-btn" onClick={() => retryTranscription(m)}>
-                            <RefreshCw />Retry Transcription
-                          </button>
-                        )}
-                    {audioIds.has(m.id) && <AudioPlayer meetingId={m.id} />}
+                    {m.transcript && <div className="history-snippet">{m.transcript}</div>}
+                    {m.diag && !m.transcript && <div className="diag-line">{m.diag}</div>}
+                    {!m.transcript && audioIds.has(m.id) &&
+                      ['saved', 'queued', 'transcription_interrupted', 'transcription_failed', 'error'].includes(m.status || '') && (
+                        <button className="btn-gold retry-btn" onClick={() => retryTranscription(m)}>
+                          <RefreshCw />{typeof m.tNext === 'number' && m.tNext > 0 ? `Resume Transcription (from ${m.tNext + 1}/${m.segments})` : 'Transcribe Audio'}
+                        </button>
+                      )}
+                    {audioIds.has(m.id) && (
+                      <AudioPlayer meetingId={m.id} segments={m.audioKind === 'segments' ? (m.segments || 0) : 0} mimeType={m.mimeType || 'audio/mp4'} />
+                    )}
                     {m.actionItems && m.actionItems.length > 0 && (
                       <div className="action-items">
                         <div className="action-items-label"><ListChecks />Action Items</div>
@@ -1269,6 +1556,24 @@ export function App() {
                 onChange={e => setSettings(s => ({ ...s, githubToken: e.target.value.trim() }))}
                 autoComplete="off"
               />
+            </div>
+
+            <div className="settings-group">
+              <label className="settings-label"><HardDrive style={{ width: 14, height: 14 }} /> Diagnostics</label>
+              <p className="settings-hint">
+                Exports a local log of app events (recording states, segment writes, storage,
+                worker status, errors) for troubleshooting. It never contains your audio,
+                transcripts, or meeting titles.
+              </p>
+              <button className="btn-download" onClick={async () => {
+                const json = await exportDiagnostics(APP_VERSION);
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+                a.download = `MeetingGhost-diagnostics-${new Date().toISOString().slice(0, 19).replace(/[:]/g, '-')}.json`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+              }}>
+                <Download />Export Diagnostics
+              </button>
             </div>
           </section>
         )}
