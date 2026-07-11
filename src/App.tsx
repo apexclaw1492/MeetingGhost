@@ -383,6 +383,18 @@ export function App() {
     }
     dlog('app.launch', { version: APP_VERSION, platform: Capacitor.getPlatform() });
 
+    // Test automation: native side fires this when launched with MG_SELFTEST=1
+    const onSelfTestAutostart = () => {
+      const cur = loadSelfTest();
+      if (cur?.running || selfTestBusyRef.current) return; // idempotent
+      dlog('selftest.autostart');
+      const st = newSelfTest(25, 20);
+      saveSelfTest(st);
+      setSelfTest(st);
+      void runSelfTest(st);
+    };
+    window.addEventListener('mg-selftest-autostart', onSelfTestAutostart);
+
     // Self-test resume: a relaunch while a run was active IS a kill-recovery
     // test — count it and continue from the persisted cursor.
     let selfTestTimer: number | undefined;
@@ -405,6 +417,7 @@ export function App() {
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('beforeunload', onBeforeUnload);
       appListener?.remove();
+      window.removeEventListener('mg-selftest-autostart', onSelfTestAutostart);
       if (selfTestTimer !== undefined) clearTimeout(selfTestTimer);
       if (autoResumeTimer !== undefined) clearTimeout(autoResumeTimer);
     };
