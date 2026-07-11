@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MeetingGhost requires microphone access to record meetings and generate transcripts.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>MeetingGhost transcribes your recordings entirely on this device using Apple speech recognition. Audio never leaves your iPhone.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

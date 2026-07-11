@@ -61,6 +61,15 @@ export async function writeSegment(meetingId: string, seg: number, blob: Blob): 
   log('audio.segment.written', { meetingId, seg, bytes: blob.size, native: isNative() });
 }
 
+/* Absolute filesystem path of a segment for native consumers (Speech plugin
+   reads the file directly — no base64 shuttling through the WebView). */
+export async function segmentNativePath(meetingId: string, seg: number): Promise<string | null> {
+  try {
+    const res = await Filesystem.getUri({ path: pathFor(meetingId, seg), directory: Directory.Data });
+    return res.uri.replace(/^file:\/\//, '');
+  } catch { return null; }
+}
+
 export async function readSegment(meetingId: string, seg: number, mimeType: string): Promise<Blob | null> {
   try {
     if (isNative()) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Share } from '@capacitor/share';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { App as CapApp } from '@capacitor/app';
 import {
@@ -26,13 +26,22 @@ import { createGitHubIssue, buildFollowUpICS, buildMailto, meetingToMarkdown } f
 import { idb } from './utils/idb';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SegmentedRecorder, SEGMENT_MS } from './utils/recorder';
-import { writeSegment, readSegment, countSegmentsOnDisk, deleteMeetingAudio, freeBytes, STORAGE_WARN_BYTES } from './utils/audioStore';
+import { writeSegment, readSegment, segmentNativePath, countSegmentsOnDisk, deleteMeetingAudio, freeBytes, STORAGE_WARN_BYTES } from './utils/audioStore';
 import { log as dlog, logError as dlogError, exportDiagnostics } from './utils/diag';
 import { loadSelfTest, saveSelfTest, newSelfTest, makeTestStream, writeResultsFile, summarize } from './utils/selftest';
 import type { SelfTestState } from './utils/selftest';
 import './App.css';
 
-export const APP_VERSION = 'v10.1';
+export const APP_VERSION = 'v11.0';
+
+/* Native on-device transcription (ios/App/App/NativeSTTPlugin.swift).
+   On iOS, ML inference inside WKWebView trips the process memory ceiling and
+   kills the app — transcription runs in native memory instead. Whisper-WASM
+   remains the web engine. */
+const NativeSTT = registerPlugin<{
+  available(): Promise<{ available: boolean; engine?: string }>;
+  transcribeFile(options: { path: string }): Promise<{ text: string; engine?: string }>;
+}>('NativeSTT');
 
 interface Model {
   name: string;
@@ -115,6 +124,9 @@ export function App() {
   const [savedFlash, setSavedFlash] = useState(''); // "recording safely saved" confirmation
   const [selfTest, setSelfTest] = useState<SelfTestState | null>(null);
   const selfTestBusyRef = useRef(false);
+  const [nativeSTT, setNativeSTT] = useState<{ available: boolean; engine?: string } | null>(null);
+  const nativeSTTRef = useRef<{ available: boolean; engine?: string } | null>(null);
+  useEffect(() => { nativeSTTRef.current = nativeSTT; }, [nativeSTT]);
 
   /* Current recording tracking */
   const currentMeetingRef = useRef<{ id: string, date: string, dur: number } | null>(null);
@@ -315,7 +327,25 @@ export function App() {
 
     // Models persisted as installed are cached by the browser — re-warm the
     // workers so transcription/summarization actually work after a reload.
-    if (whisperWasDone) whisperWorkerRef.current.postMessage({ type: 'init' });
+    // Native STT probe: on iOS the native engine replaces Whisper-WASM
+    // (whisper worker stays cold there — it is the crash source).
+    let nativeSTTAvailable = false;
+    const warmWhisper = () => {
+      if (whisperWasDone && !nativeSTTAvailable) whisperWorkerRef.current?.postMessage({ type: 'init' });
+    };
+    if (Capacitor.isNativePlatform()) {
+      NativeSTT.available()
+        .then(res => {
+          nativeSTTAvailable = !!res.available;
+          setNativeSTT(res);
+          nativeSTTRef.current = res;
+          dlog('nativestt.probe', { ...res });
+          warmWhisper();
+        })
+        .catch(() => { setNativeSTT({ available: false }); warmWhisper(); });
+    } else {
+      warmWhisper();
+    }
     if (gemmaWasDone && hasWebGPU) llmWorkerRef.current.postMessage({ type: 'init' });
     if (embedderWasDone) embedWorkerRef.current.postMessage({ type: 'init' });
 
@@ -428,7 +458,8 @@ export function App() {
       setTimeout(() => setNotice(''), 5000);
       return;
     }
-    if (!whisperStateRef.current.done) {
+    const useNative = !!nativeSTTRef.current?.available;
+    if (!useNative && !whisperStateRef.current.done) {
       updateMeeting(id, { status: 'transcription_interrupted', diag: 'Whisper model not installed — download it in AI Models, then tap Retry.' });
       setNotice('Recording saved. Install the Whisper model (AI Models tab) to transcribe it.');
       setTimeout(() => setNotice(''), 8000);
@@ -462,17 +493,26 @@ export function App() {
           return;
         }
         setProcStatus(`Transcribing ${next + 1}/${total}`);
-        const blob = await readSegment(id, next, m.mimeType || 'audio/mp4');
-        if (!blob) throw new Error(`audio segment ${next + 1} could not be read from storage`);
-        const audioF32 = await getAudioData([blob], 16000);
-        if (next === 0 && !m.dur) {
-          updateMeeting(id, { dur: Math.round((audioF32.length / 16000) * total) });
-        }
         // Watchdog: a ≤60s segment must never hang the queue forever
-        const text = await Promise.race([
-          transcribeFloat32(audioF32),
-          new Promise<never>((_, rej) => setTimeout(() => rej(new Error('transcription stalled (5-minute timeout)')), 300_000)),
-        ]);
+        const stallGuard = new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error('transcription stalled (5-minute timeout)')), 300_000));
+        let text: string;
+        if (useNative) {
+          // Native engine reads the segment file directly — nothing large
+          // crosses the WebView boundary, nothing is decoded in JS memory.
+          const path = await segmentNativePath(id, next);
+          if (!path) throw new Error(`audio segment ${next + 1} could not be located in storage`);
+          const res = await Promise.race([NativeSTT.transcribeFile({ path }), stallGuard]);
+          text = res.text;
+        } else {
+          const blob = await readSegment(id, next, m.mimeType || 'audio/mp4');
+          if (!blob) throw new Error(`audio segment ${next + 1} could not be read from storage`);
+          const audioF32 = await getAudioData([blob], 16000);
+          if (next === 0 && !m.dur) {
+            updateMeeting(id, { dur: Math.round((audioF32.length / 16000) * total) });
+          }
+          text = await Promise.race([transcribeFloat32(audioF32), stallGuard]);
+        }
         parts[next] = (text || '').replace(/\[BLANK_AUDIO\]/g, '').trim();
         next++;
         // Checkpoint after EVERY segment — resume never repeats finished work
@@ -867,7 +907,8 @@ export function App() {
   const handleOnboarding = () => {
     setHasOnboarded(true);
     localStorage.setItem('mg_onb', '1');
-    dl('whisper');
+    // iOS transcribes with the built-in Apple engine — no Whisper download
+    if (Capacitor.getPlatform() !== 'ios') dl('whisper');
     if (hasWebGPU) dl('gemma');
   };
 
@@ -1593,8 +1634,25 @@ export function App() {
               Heavy AI engines are downloaded post-installation to keep your initial download ultra-small (~3 MB). Install them on-demand below.
             </p>
             <div className="models-grid">
+              {nativeSTT?.available && (
+                <div className="model-tile">
+                  <div>
+                    <div className="model-top">
+                      <div className="model-name">Apple Speech (built-in)</div>
+                      <div className="model-size">no download</div>
+                    </div>
+                    <p className="model-info">
+                      Transcription runs natively on this device using
+                      {nativeSTT.engine === 'SpeechAnalyzer' ? " Apple's iOS 26 SpeechAnalyzer" : ' Apple speech recognition'} —
+                      100% on-device, audio never leaves your phone.
+                    </p>
+                  </div>
+                  <div className="model-done"><CheckCircle2 />Built-in & Ready</div>
+                </div>
+              )}
               {([
-                { m: whisper, t: 'whisper' as const, d: 'Provides 100% private, offline speech-to-text transcription directly on your device.' },
+                // On iOS the native engine replaces Whisper (the WASM path is the WebView crash source)
+                ...(nativeSTT?.available ? [] : [{ m: whisper, t: 'whisper' as const, d: 'Provides 100% private, offline speech-to-text transcription directly on your device.' }]),
                 { m: gemma, t: 'gemma' as const, d: 'Generates private meeting minutes, key action items, and executive summaries on-device.' },
                 { m: embedder, t: 'embed' as const, d: 'Powers semantic search and "Ask your meetings" — finds moments by meaning, not just keywords.' },
               ]).map(({ m, t, d }) => {

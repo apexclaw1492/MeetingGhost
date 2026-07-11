@@ -11,6 +11,7 @@
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
+		A1000005000000000000F1D0 /* NativeSTTPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000006000000000000F1D0 /* NativeSTTPlugin.swift */; };
 		A1000003000000000000F1D0 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004000000000000F1D0 /* MainViewController.swift */; };
 		A1000001000000000000F1D0 /* FreeDiskPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002000000000000F1D0 /* FreeDiskPlugin.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
@@ -24,6 +25,7 @@
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A1000006000000000000F1D0 /* NativeSTTPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSTTPlugin.swift; sourceTree = "<group>"; };
 		A1000004000000000000F1D0 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		A1000002000000000000F1D0 /* FreeDiskPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeDiskPlugin.swift; sourceTree = "<group>"; };
 		504EC30C1FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
@@ -68,6 +70,7 @@
 			children = (
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				A1000006000000000000F1D0 /* NativeSTTPlugin.swift */,
 				A1000004000000000000F1D0 /* MainViewController.swift */,
 				A1000002000000000000F1D0 /* FreeDiskPlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -162,6 +165,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				A1000005000000000000F1D0 /* NativeSTTPlugin.swift in Sources */,
 				A1000003000000000000F1D0 /* MainViewController.swift in Sources */,
 				A1000001000000000000F1D0 /* FreeDiskPlugin.swift in Sources */,
 			);

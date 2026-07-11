@@ -1,5 +1,23 @@
 # Current Architectural State
-**Last Updated:** MeetingGhost Gold v10.0 (2026-07-11)
+**Last Updated:** MeetingGhost Gold v11.0 (2026-07-11)
+
+## Transcription engines (v11 — per-platform)
+- **iOS: native Apple Speech** via app-local plugin `NativeSTTPlugin.swift`
+  (`NativeSTT` in JS). iOS 26+: SpeechAnalyzer/SpeechTranscriber (Apple's
+  on-device model, system-managed assets, `AssetInventory` download,
+  100% on-device). iOS <26: SFSpeechRecognizer with
+  `requiresOnDeviceRecognition = true`. Segments are read directly from the
+  app container by native code (extensionless files are staged to a tmp .m4a —
+  AVFoundation needs a typed container). WHY: Whisper-WASM inference inside
+  WKWebView trips the content-process memory ceiling → app exits to home
+  screen. ML inference must not run inside the WebView on iOS.
+- **Web: Whisper-WASM** (unchanged, proven reliable on desktop browsers).
+- **Android: currently Whisper-WASM; plan is a native engine** (whisper.cpp
+  JNI or Vosk — Android has no first-party file-based on-device STT API).
+- Selection at runtime: `NativeSTT.available()` probe on native platforms;
+  whisper worker stays cold when native STT is available. AI Models tab shows
+  "Apple Speech (built-in)" instead of the Whisper download on iOS; onboarding
+  skips the Whisper download on iOS.
 
 ## Tech Stack
 - **Framework:** React 19 (Vite 8, TypeScript)
