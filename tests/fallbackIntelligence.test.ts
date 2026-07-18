@@ -42,7 +42,11 @@ test('long repetitive summaries retain distinct middle and final meeting coverag
 test('multi-hour optional summary refinement uses the durable bounded fallback', () => {
   const transcript = 'opening context. '.repeat(20_000);
   const completeFallback = 'KEY POINTS:\n- opening\n- middle\n- final';
-  assert.equal(summaryEnhancementInput(transcript, completeFallback), completeFallback);
+  const evidence = summaryEnhancementInput(transcript, completeFallback);
+  assert.equal(evidence.length <= 12_000, true);
+  assert.match(evidence, /TEMPORAL EVIDENCE FROM START THROUGH FINISH/);
+  assert.match(evidence, /EXTRACTIVE BASELINE FROM THE COMPLETE MEETING/);
+  assert.match(evidence, /KEY POINTS:\n- opening\n- middle\n- final/);
   assert.equal(summaryEnhancementInput('short transcript', completeFallback), 'short transcript');
 });
 

@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 **Project:** MeetingGhost Gold
 **Vision:** A premium, hyper-secure meeting transcription and summarization hub that runs 100% locally on-device. No cloud APIs, no subscriptions, total privacy.
-**Current baseline:** v12.26 (2026-07-17). Optional BYO-key cloud refinement
+**Current baseline:** v12.27 (2026-07-18). Optional BYO-key cloud refinement
 exists, but every core recording, transcript, summary, search, playback, and
 export path must remain useful without it.
 
@@ -81,6 +81,14 @@ export path must remain useful without it.
   deterministically summarized and persisted before Markdown/PDF sharing.
 - Summary and lexical cross-conversation search must work without WebGPU,
   downloaded LLMs, a cloud key, or network access.
+- Summary quality must be evaluated on realistic noisy meetings, not only
+  synthetic integrity markers. Decisions require explicit agreement; tasks
+  require an explicit owner/commitment and must not be invented from questions,
+  suggestions, contingencies, advice, scripture, or examples. A model may not
+  displace verified extractive decisions/tasks with ungrounded prose. Release
+  requires a representative human-reviewed 30/60/120-minute gold set plus
+  measured local-device latency, memory, thermal, cancellation, and resume
+  behavior.
 - Semantic indexing must accept only an exact, finite embedding batch with one
   consistent dimension. A partial/corrupt reply must not replace a valid
   index; corrupt stored indexes must be treated as unindexed and rebuildable.

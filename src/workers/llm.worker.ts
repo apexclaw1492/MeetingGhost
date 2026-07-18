@@ -8,8 +8,8 @@ self.onmessage = async (e: MessageEvent) => {
   try {
     if (type === 'init') {
       self.postMessage({ status: 'progress', progress: 0, initId });
-      // We use a very small quantized model for mobile browser stability
-      enginePromise = CreateMLCEngine("TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC", {
+      // This identifier must match the model named in the UI and diagnostics.
+      enginePromise = CreateMLCEngine("gemma3-1b-it-q4f16_1-MLC", {
         initProgressCallback: (info) => {
           self.postMessage({ status: 'progress', progress: Math.round(info.progress * 100), initId });
         }
@@ -28,6 +28,10 @@ self.onmessage = async (e: MessageEvent) => {
           { role: "system", content: systemPrompt || "You are a professional assistant. Summarize the provided meeting transcript into concise key takeaways and action items." },
           { role: "user", content: text }
         ],
+        temperature: 0.2,
+        top_p: 0.9,
+        max_tokens: 900,
+        seed: 42,
       });
       
       self.postMessage({ status: 'complete', requestId, text: reply.choices[0].message.content });
@@ -41,6 +45,10 @@ self.onmessage = async (e: MessageEvent) => {
           { role: "system", content: systemPrompt || "You are a helpful assistant." },
           { role: "user", content: text }
         ],
+        temperature: 0.2,
+        top_p: 0.9,
+        max_tokens: 700,
+        seed: 42,
       });
       self.postMessage({ status: 'chat_complete', requestId, text: reply.choices[0].message.content });
     }
@@ -55,6 +63,9 @@ self.onmessage = async (e: MessageEvent) => {
           { role: "system", content: "You are an assistant. Generate a highly concise 3-5 word title for this meeting based on the transcript. Reply ONLY with the title." },
           { role: "user", content: text }
         ],
+        temperature: 0.1,
+        max_tokens: 32,
+        seed: 42,
       });
       
       self.postMessage({ status: 'title_complete', requestId, text: reply.choices[0].message.content.replace(/["']/g, "").trim() });

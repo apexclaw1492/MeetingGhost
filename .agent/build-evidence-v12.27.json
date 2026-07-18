@@ -1,0 +1,45 @@
+{
+  "capturedAt": "2026-07-18T12:50:00Z",
+  "appVersion": "v12.27",
+  "result": "pass-build-release-blocked-quality",
+  "change": "Grounded local summary evaluation and actual Gemma 3 worker identity",
+  "web": {
+    "tests": { "result": "pass", "passed": 93, "failed": 0 },
+    "lint": "pass",
+    "productionBuild": "pass-with-existing-dependency-and-chunk-size-warnings",
+    "capacitorSync": { "ios": "pass", "android": "pass" },
+    "mainBundle": "assets/index-CJ6oboik.js",
+    "mainBundleBytes": 918256,
+    "localLlmWorker": "assets/llm.worker-CS_REZ8V.js",
+    "appVersionPresent": "v12.27"
+  },
+  "summaryQuality": {
+    "fixtureCount": 3,
+    "deterministicAverage": 86.1,
+    "gemmaOnlyAverage": 46.7,
+    "groundedHybridAverage": 88.9,
+    "phoneMeetingUsefulness": "fail",
+    "evidence": ".agent/summary-quality-evidence-v12.27.json"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.27-to-protect-unbacked-up-user-data",
+    "phoneContainerRead": "pass-private-content-excluded"
+  },
+  "android": {
+    "unitTests": "pass",
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "gradleTasks": 371,
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8598638,
+      "sha256": "56a395ef82127bc51efc1e69742b0a49be7338cdd4c0f52b48385e8e81c6c5e5"
+    }
+  },
+  "warnings": [
+    "Production build retains direct-eval, browser-externalization, ineffective dynamic import, and large-chunk warnings from existing dependencies/architecture.",
+    "Desktop Ollama Gemma comparison is not physical phone WebLLM performance proof.",
+    "The private 14,522-word phone meeting still failed the usefulness bar; release remains blocked on long-meeting summary quality and the physical reliability matrix."
+  ]
+}

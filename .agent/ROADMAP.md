@@ -1,7 +1,7 @@
 # MeetingGhost Gold — Reliability Roadmap
 
-**Updated:** 2026-07-17 · **Current source:** v12.26 · **Release state:** not yet
-qualified for locked, hours-long mobile recording.
+**Updated:** 2026-07-18 · **Current source:** v12.27 · **Release state:** not yet
+qualified for locked, hours-long mobile recording or real-meeting summary quality.
 
 ## ✅ Completed (v1.0 - v9.0)
 - **v1.0 (Init):** Setup Vite + React + Capacitor project.
@@ -16,7 +16,7 @@ qualified for locked, hours-long mobile recording.
 - **v8.0 (Integrations & Sharing):** GitHub Issues export (one issue per meeting with task-list), .ics calendar follow-ups, email drafts, structured PDF/MD exports.
 - **v9.0 (Playback & Polish):** Recordings persisted to IndexedDB with 0.5–2.5x playback player, README + docs refresh.
 
-## ✅ Completed in source/build validation (v10.0–v12.26)
+## ✅ Completed in source/build validation (v10.0–v12.27)
 
 - **v10 save-first recording:** verified one-minute segments, recovery state
   machine, resumable checkpointed transcription, playback, diagnostics, and
@@ -179,6 +179,26 @@ qualified for locked, hours-long mobile recording.
   progress/live semantics are explicit. All 87 tests, web build/lint, native
   sync/build gates, rendered 390px workflow, diagnostics export, and the
   eight-stage integrity check pass without browser warnings/errors.
+- **v12.27 grounded summary evaluation:** the optional local worker now loads
+  actual Gemma 3 1B, long meetings use bounded chronological evidence, model
+  decisions/tasks are grounded behind conservative deterministic extraction,
+  and three realistic fixtures score the deterministic/Gemma/hybrid paths. The
+  hybrid leads at 88.9/100, but the 14,522-word phone meeting still fails the
+  qualitative release bar; stronger long-meeting synthesis remains P0.
+
+## Phase 0 — real-meeting intelligence quality (P0)
+
+1. Build a staged long-meeting summarizer that extracts topic/decision/action
+   candidates per bounded chunk, checkpoints every chunk, and synthesizes only
+   grounded candidates without holding the full transcript or model context.
+2. Expand the gold set to at least 30 realistic meetings, including noisy ASR,
+   no-task conversations, overlapping speakers, corrections, and 30/60/120
+   minute cases. Require blinded human usefulness and factuality review in
+   addition to lexical fixture scores.
+3. Qualify the winning local model/pipeline on target iPhone and Android tiers
+   for latency, peak memory, thermal/battery behavior, cancellation, restart,
+   and resumability. Offer the optional BYO-cloud path when local hardware
+   cannot meet the published quality/performance floor.
 
 ## Phase 1 — decisive native-capture qualification (P0)
 

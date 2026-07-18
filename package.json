@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:summary-quality": "node --experimental-strip-types scripts/summary-quality-benchmark.ts",
     "preview": "vite preview"
   },
   "dependencies": {

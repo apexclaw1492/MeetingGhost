@@ -1,10 +1,21 @@
-# Reliability Delivery Backlog — v12.26
+# Reliability Delivery Backlog — v12.27
 
 **Status labels:** implemented means source exists; build-verified means it
 compiled/tested; device-qualified means it passed the named physical matrix.
 Only device-qualified work can close a mobile reliability requirement.
 
 ## P0 — release blockers
+
+- [ ] **Pass real-meeting summary and task quality.** v12.27 fixes the false
+  Gemma identity, adds grounded hybrid refinement, and passes 93 tests. Its
+  three-fixture hybrid score is 88.9/100 with full expected action coverage and
+  no synthetic false tasks, but the 14,522-word phone meeting still has vague
+  key points and a poor title. Add staged/chunked synthesis and a 30-meeting
+  human-reviewed gold set before release.
+- [ ] **Device-qualify local summary inference.** Measure actual Gemma 3 WebLLM
+  latency, memory, thermal/battery cost, cancellation, restart, and resumability
+  on the supported iPhone/Android tiers. Desktop Ollama is comparison evidence,
+  not proof of phone WebGPU behavior.
 
 - [x] **Replace WebView microphone capture with native segmented capture.**
   v12.26 uses iOS AVAudioRecorder and Android foreground-service MediaRecorder,

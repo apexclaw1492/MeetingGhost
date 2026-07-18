@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ActionItem } from './store';
+import { parseStructuredSummary } from './fallbackIntelligence.ts';
 
 /* ─── Summary templates ─── */
 
@@ -26,21 +27,30 @@ export type TemplateKey = keyof typeof TEMPLATES;
 
 export function localSummaryPrompt(template: TemplateKey): string {
   const t = TEMPLATES[template] ?? TEMPLATES.general;
-  return `You are a professional meeting assistant. Summarize the provided meeting transcript, focusing on ${t.focus}. Structure your reply as three sections:
-KEY POINTS: (bullet list)
-DECISIONS: (bullet list, or "None")
-ACTION ITEMS: (bullet list of concrete tasks, or "None")`;
+  return `You are MeetingGhost's careful local meeting analyst. Use ONLY facts in the supplied transcript or evidence packet, focusing on ${t.focus}.
+
+Rules:
+- Cover the beginning, middle, and end when temporal evidence is supplied.
+- Do not invent names, deadlines, decisions, or tasks.
+- A decision requires explicit agreement, approval, selection, or commitment by the group.
+- An action item requires an explicit assignment or commitment. Do not convert questions, suggestions, conditional statements, general advice, scripture, or illustrative examples into tasks.
+- Preserve the stated owner and deadline when present.
+- Keep bullets concise and specific.
+
+Reply with exactly these three sections and no preamble:
+KEY POINTS:
+- bullet list
+
+DECISIONS:
+- bullet list, or "None"
+
+ACTION ITEMS:
+- concrete tasks with owner/deadline, or "None"`;
 }
 
 /* Extract action items from a structured summary's ACTION ITEMS section */
 export function parseActionItems(summary: string): ActionItem[] {
-  const match = summary.match(/action items?:?\s*\n([\s\S]*?)(?:\n\s*\n|$)/i);
-  if (!match) return [];
-  return match[1]
-    .split('\n')
-    .map(l => l.replace(/^\s*[-*•\d.)\s]+/, '').trim())
-    .filter(l => l && !/^none\b/i.test(l))
-    .map(text => ({ text, done: false }));
+  return parseStructuredSummary(summary).actionItems.map(text => ({ text, done: false }));
 }
 
 /* ─── BYO-key Claude tier ─── */

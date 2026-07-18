@@ -17,7 +17,7 @@ import { getAudioData } from './utils/audio';
 import { store, exportBackup, mergeBackup } from './utils/store';
 import type { MeetingRecord, Folder, Settings } from './utils/store';
 import { highlightKeywords } from './utils/highlight';
-import { TEMPLATES, localSummaryPrompt, parseActionItems, summarizeWithClaude, askWithClaude, chatSystemPrompt, chatUserPrompt } from './utils/intelligence';
+import { TEMPLATES, localSummaryPrompt, summarizeWithClaude, askWithClaude, chatSystemPrompt, chatUserPrompt } from './utils/intelligence';
 import type { TemplateKey } from './utils/intelligence';
 import { assertEmbeddingBatch, chunkTranscript, saveMeetingVectors, deleteMeetingVectors, indexedMeetingIds, indexableMeetingCount, searchVectors } from './utils/vectors';
 import type { Chunk } from './utils/vectors';
@@ -30,7 +30,7 @@ import { writeSegment, readSegment, segmentNativePath, listSegmentsOnDisk, listS
 import { log as dlog, logError as dlogError, exportDiagnostics } from './utils/diag';
 import { loadSelfTest, saveSelfTest, newSelfTest, makeTestStream, writeResultsFile, summarize } from './utils/selftest';
 import type { SelfTestState } from './utils/selftest';
-import { createBasicSummary, ensureMeetingSummary, mergeSearchSources, searchMeetingText, summaryEnhancementInput } from './utils/fallbackIntelligence';
+import { createBasicSummary, ensureMeetingSummary, mergeSearchSources, refineSummarySafely, searchMeetingText, summaryEnhancementInput } from './utils/fallbackIntelligence';
 import { normalizedSegmentIds } from './utils/segmentManifest';
 import { buildMeetingPdf } from './utils/pdfExport';
 import { formatDuration } from './utils/time';
@@ -52,7 +52,7 @@ import type { ModelInitKind, ModelInitLimits, ModelInitTimeoutReason } from './u
 import { deleteMeetingArtifacts } from './utils/deletionSafety';
 import './App.css';
 
-export const APP_VERSION = 'v12.26';
+export const APP_VERSION = 'v12.27';
 
 const SEMANTIC_INDEX_JOB_MAX_MS = 15 * 60_000;
 const LIBRARY_SCAN_MAX_MS = 5 * 60_000;
@@ -204,7 +204,7 @@ export function App() {
     name: 'Whisper Voice-to-Text', size: '141 MB', done: false, loading: false, progress: 0
   });
   const [gemma, setGemma] = useState<Model>({
-    name: 'Gemma 3 Summarizer', size: '253 MB', done: false, loading: false, progress: 0
+    name: 'Gemma 3 Summarizer', size: '~700 MB runtime', done: false, loading: false, progress: 0
   });
   const [embedder, setEmbedder] = useState<Model>({
     name: 'Semantic Search Engine', size: '25 MB', done: false, loading: false, progress: 0
@@ -278,7 +278,7 @@ export function App() {
   const modelInitWatchdogRef = useRef(new ModelInitWatchdog());
   const modelInitStartRef = useRef<((kind: ModelInitKind) => void) | null>(null);
   const chatRequestsRef = useRef(new RequestRegistry<string>());
-  const summaryRequestsRef = useRef<Map<number, { meetingId: string; timer: number }>>(new Map());
+  const summaryRequestsRef = useRef<Map<number, { meetingId: string; timer: number; fallback: string; evidence: string }>>(new Map());
   const summaryRequestSeqRef = useRef(0);
   const [audioIds, setAudioIds] = useState<Set<string>>(new Set());
   const [procStatus, setProcStatus] = useState('');
@@ -701,12 +701,14 @@ export function App() {
           dlog('worker.llm.stale', { requestId, operation: 'summarize' });
           return;
         }
-        updateMeeting(context.meetingId, { summary: text, actionItems: parseActionItems(text) });
+        const refinement = refineSummarySafely(text, context.fallback, context.evidence);
+        updateMeeting(context.meetingId, { summary: refinement.summary, actionItems: refinement.actionItems });
+        dlog('worker.llm.summary.quality', { requestId, accepted: refinement.accepted, reason: refinement.reason });
         if (currentMeetingRef.current?.id === context.meetingId) {
-          setSummary(text);
-          summaryRef.current = text;
+          setSummary(refinement.summary);
+          summaryRef.current = refinement.summary;
         }
-        llmWorkerRef.current?.postMessage({ type: 'autoTitle', requestId, text });
+        llmWorkerRef.current?.postMessage({ type: 'autoTitle', requestId, text: refinement.summary });
       } else if (status === 'chat_complete') {
         if (!chatRequestsRef.current.resolve(requestId, text)) {
           dlog('worker.llm.stale', { requestId, operation: 'chat' });
@@ -1986,9 +1988,8 @@ export function App() {
     if (m) updateMeeting(m.id, { title: basic.title, summary: basic.summary, actionItems: basic.actionItems });
     setProcessing(false);
     if (llmWorkerRef.current && gemmaStateRef.current.done) {
-      // TinyLlama has a small context window. The deterministic summary above
-      // already considered the entire meeting; refine that instead of sending
-      // a multi-hour raw transcript that can exhaust WebGPU/WebView memory.
+      // Gemma receives a bounded evidence packet sampled across the complete
+      // meeting instead of only the opening or an oversized raw transcript.
       const modelInput = summaryEnhancementInput(text, basic.summary);
       // Supersede any older refinement for this meeting. Late replies remain
       // correlated to their original meeting and are ignored after removal.
@@ -2011,7 +2012,7 @@ export function App() {
             setTimeout(() => setNotice(''), 6000);
           }
         }, 120_000);
-        summaryRequestsRef.current.set(requestId, { meetingId, timer });
+        summaryRequestsRef.current.set(requestId, { meetingId, timer, fallback: basic.summary, evidence: modelInput });
       }
       llmWorkerRef.current.postMessage({
         type: 'summarize', requestId, text: modelInput,

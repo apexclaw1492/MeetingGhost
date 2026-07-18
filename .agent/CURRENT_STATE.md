@@ -1,5 +1,5 @@
 # Current Architectural State
-**Last Updated:** MeetingGhost Gold v12.26 (2026-07-17)
+**Last Updated:** MeetingGhost Gold v12.27 (2026-07-18)
 
 ## Release verdict
 
@@ -11,10 +11,22 @@ failed after its first WebView-owned segment. v12.26 retains the native
 replacement for that failed layer with native iOS/Android capture and 15-second
 atomic commits, but it has not yet
 been installed and rerun through the lock, 60-minute, and two-hour gates. No
-current physical Android evidence exists. The 2026-07-18T04:41:23Z device audit
-timed out waiting for CoreDeviceService to initialize; `adb` is still absent.
-Although Xcode lists David’s iPhone XIV as a possible build destination, that
-is not install or runtime proof.
+current physical Android evidence exists. An initial 2026-07-18 device audit
+timed out waiting for CoreDeviceService, but a later connection succeeded to
+David’s iPhone XIV and confirmed the installed MeetingGhost container plus the
+private 90-minute meeting artifacts. v12.27 was not installed over that copy
+because a complete container backup could not be made safely. `adb` is still
+absent, so no current Android runtime proof exists.
+
+Summary quality is also a release blocker. v12.27 corrects the mislabeled local
+worker from TinyLlama to actual Gemma 3 1B, adds conservative task/decision
+extraction, chronological long-meeting evidence, grounded refinement, and three
+realistic scored fixtures. The guarded hybrid averaged 88.9/100 versus 86.1
+for deterministic extraction and 46.7 for Gemma alone. However, a private
+14,522-word meeting recovered from the installed phone app still produced vague
+key points and a poor title. It correctly produced no unsupported decisions or
+tasks, but this real-meeting result is not release quality. See
+`.agent/summary-quality-evidence-v12.27.json`.
 
 Keep the React/Capacitor product and UI. The production capture correction is
 now implemented; the remaining release blocker is physical qualification.
@@ -23,6 +35,25 @@ bounded Whisper compatibility fallback when the system service/model cannot
 prove file-audio support. Native iOS/Android streamed imports and bounded
 one-minute processing are implemented but not device-qualified. See
 `.agent/RELIABILITY_OPTIONS.md` for the evidence and release gates.
+
+## v12.27 grounded local summary quality
+
+- The local worker now loads `gemma3-1b-it-q4f16_1-MLC`; the previous worker
+  label said Gemma while its code loaded TinyLlama. The displayed runtime size
+  now reflects the approximately 700 MB WebLLM requirement.
+- Deterministic action items require an explicit assignment/commitment and task
+  language; questions, suggestions, contingencies, general advice, and examples
+  are excluded. Decisions require explicit group agreement/approval language.
+- Long meetings supply a bounded 12,000-character evidence packet across six
+  chronological windows. Model output must have all three sections and be
+  grounded; verified extractive decisions/tasks cannot be displaced by model
+  prose.
+- Three realistic synthetic fixtures and the reusable local Ollama benchmark
+  compare deterministic, Gemma-only, and guarded hybrid outputs. 93/93 tests
+  pass. Web production build/lint, both native syncs, unsigned iOS Simulator
+  build, and Android unit/assemble/lint also pass. The real phone meeting
+  prevents a release-quality claim until a stronger long-meeting summarization
+  strategy passes blinded human review.
 
 ## v12.26 visible recovery and accessible release flow
 

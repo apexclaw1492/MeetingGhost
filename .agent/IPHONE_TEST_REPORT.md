@@ -1,4 +1,18 @@
-# Mobile Reliability Test Report — v12.26
+# Mobile Reliability Test Report — v12.27
+
+## v12.27 phone-meeting summary audit (2026-07-18)
+
+- CoreDevice later connected to David’s iPhone XIV and confirmed the installed
+  `com.meetingghost.app` data container. The private meeting transcript contained
+  75,935 characters / 14,522 words; matching native recording segments were
+  present. Meeting content is excluded from repository evidence.
+- The transcript was compared with deterministic, local Gemma 3 1B, and guarded
+  hybrid summary paths. The hybrid produced no unsupported decisions or tasks,
+  but its key points remained vague and its title was poor. Summary usefulness
+  is therefore a release blocker despite the 88.9/100 synthetic average.
+- v12.27 was not installed over the phone copy because the host could not first
+  complete a full data-container backup. This is real saved-meeting evaluation,
+  not current on-phone WebGPU inference or UI proof.
 
 ## Current qualification status (2026-07-17)
 
@@ -10,9 +24,9 @@
 | 60-minute / two-hour recording on v12.26 | Earlier WebView path failed; native replacement not run | **FAIL HISTORICALLY / UNPROVEN REPLACEMENT** |
 | Android recording/transcription/import | Native capture/import/decode/STT build; API 34 launch and capability fallback verified; no physical device run | **PASS BUILD/EMULATOR / UNPROVEN DEVICE** |
 | iOS native import + bounded Apple Speech | Streamed picker and one-minute checkpoint source compile; no physical import | **PASS BUILD / UNPROVEN DEVICE** |
-| Summary, search, playback/deletion failure UX, long export, transcript archival | 87 automated tests + v12.25 400-meeting progress/cancel/retry proof + v12.26 integrity/accessibility browser proof + installed v12.10 Android full-chain integrity run | **PASS WEB/EMULATOR, NOT DEVICE-SOAKED** |
+| Summary, tasks, search, playback/deletion failure UX, long export, transcript archival | 93 automated tests + v12.27 scored fixtures/phone-meeting audit + prior runtime evidence | **SUMMARY SAFETY PASS / REAL-MEETING USEFULNESS FAIL** |
 | Accessibility | v12.26 automated semantics/target/focus/motion contracts and 390px rendered flow pass | **PASS SOURCE/BROWSER; VOICEOVER/TALKBACK/LARGEST TEXT UNPROVEN** |
-| Current v12.26 assets/native projects | 87 tests, web build/lint, both native asset syncs, unsigned iOS Simulator build, and Android unit/assemble/lint pass; v12.10 API 34 launch/integrity remains prior runtime evidence | **PASS BUILD; v12.26 DEVICE RUN PENDING** |
+| Current v12.27 assets/native projects | 93 tests, web build/lint, both native asset syncs, unsigned iOS Simulator build, and Android unit/assemble/lint pass; v12.10 API 34 launch/integrity remains prior runtime evidence | **PASS BUILD; v12.27 DEVICE RUN PENDING** |
 
 Release decision: **do not describe the app as hours-long reliable yet.** The
 next decisive evidence is a v12.26 physical native-capture screen-lock run. The

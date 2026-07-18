@@ -1,0 +1,44 @@
+{
+  "capturedAt": "2026-07-18T12:44:25Z",
+  "appVersion": "v12.27",
+  "result": "mixed-release-blocked",
+  "modelIdentity": {
+    "previousWorkerModel": "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC",
+    "shippedWorkerModel": "gemma3-1b-it-q4f16_1-MLC",
+    "desktopComparisonModel": "gemma3:1b",
+    "boundary": "Desktop Ollama uses the same Gemma 3 1B family but is not proof of WebLLM quantization, WebGPU, or phone runtime behavior."
+  },
+  "rubric": {
+    "total": 100,
+    "structure": 10,
+    "topicCoverage": 25,
+    "decisionCoverage": 25,
+    "actionCoverage": 30,
+    "actionPrecision": 10
+  },
+  "fixtureCount": 3,
+  "averageScores": {
+    "deterministic": 86.1,
+    "gemmaOnly": 46.7,
+    "groundedHybrid": 88.9
+  },
+  "fixtureScores": [
+    { "id": "mobile-launch-review", "deterministic": 75, "gemmaOnly": 40, "groundedHybrid": 75 },
+    { "id": "enterprise-renewal", "deterministic": 91.7, "gemmaOnly": 41.7, "groundedHybrid": 100 },
+    { "id": "community-volunteer-planning", "deterministic": 91.7, "gemmaOnly": 58.3, "groundedHybrid": 91.7 }
+  ],
+  "phoneMeeting": {
+    "source": "private installed-app IndexedDB transcript; content excluded from repository",
+    "characters": 75935,
+    "words": 14522,
+    "evidenceCharacters": 9885,
+    "groundedHybridAccepted": true,
+    "keyPoints": 6,
+    "decisions": 0,
+    "actionItems": 0,
+    "factualSafetyAssessment": "No unsupported decision or task was produced.",
+    "usefulnessAssessment": "Fail: key points remained vague and the generated title was poor."
+  },
+  "automatedTests": { "passed": 93, "failed": 0 },
+  "releaseConclusion": "The grounded hybrid is the best tested combination, but real long-meeting usefulness remains below the release bar."
+}
