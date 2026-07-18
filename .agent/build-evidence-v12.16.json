@@ -1,0 +1,33 @@
+{
+  "capturedAt": "2026-07-17T11:18:35Z",
+  "appVersion": "v12.16",
+  "evidenceLevel": "source-and-native-build-verified",
+  "reliabilityChanges": [
+    "Microphone acquisition and native/web recorder startup terminate visibly after 30 seconds.",
+    "A browser microphone stream resolving after timeout is immediately closed.",
+    "Timed-out recording startup reconciles bounded stop and authoritative storage evidence: verified audio is recovered, proven-empty shells are removed, and uncertain evidence retains a recovery shell without deletion.",
+    "Optional haptics cannot delay recording startup or audio finalization."
+  ],
+  "typescript": {
+    "tests": { "result": "pass", "passed": 51, "failed": 0 },
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": { "iosSync": "pass", "androidSync": "pass", "appVersionPresent": "v12.16" },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.16",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8658700,
+      "sha256": "b85f4595f6935a717b832ce23515003396dbda141eec6bcd655ae7c1d77249e4"
+    }
+  },
+  "qualificationBoundary": "Build and fault-injection evidence does not prove physical recorder-start timeout behavior, locked 60/120-minute recording, real saved-audio transcription, interruption recovery, or destination-app receipt."
+}

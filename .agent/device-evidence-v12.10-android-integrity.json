@@ -1,0 +1,65 @@
+{
+  "_meetingghost_device_evidence": 1,
+  "capturedAt": "2026-07-14T14:13:18.170Z",
+  "runtime": {
+    "platform": "android",
+    "sdk": 34,
+    "webView": "113.0.5672.136",
+    "appVersion": "v12.10",
+    "emulator": "isolated x86_64 Google APIs",
+    "appProcessAliveAfterRun": true,
+    "recordingsDirectoryEmptyAfterRun": true,
+    "nativeExportDirectoryEmptyAfterRun": true,
+    "integrityRunErrorLogEmpty": true,
+    "nativeShareBoundaryVerified": true
+  },
+  "integrity": {
+    "version": 1,
+    "platform": "android",
+    "startedAt": "2026-07-14T14:13:07.797Z",
+    "finishedAt": "2026-07-14T14:13:18.170Z",
+    "passed": true,
+    "steps": [
+      {
+        "name": "Saved audio playback boundary",
+        "passed": true,
+        "detail": "9644 bytes round-tripped and decoded as 0.300s audio."
+      },
+      {
+        "name": "Metadata-loss audio recovery",
+        "passed": true,
+        "detail": "Verified orphan scan found segment 0 and all 9644 audio bytes without History metadata."
+      },
+      {
+        "name": "Transcript archive and hydration",
+        "passed": true,
+        "detail": "174104 characters restored byte-for-byte."
+      },
+      {
+        "name": "Whole-meeting private summary",
+        "passed": true,
+        "detail": "Decision and final action markers survived deterministic summarization."
+      },
+      {
+        "name": "Cross-conversation full-text search",
+        "passed": true,
+        "detail": "Exact marker returned from \u201cThe Meeting Integrity Sentence\u201d."
+      },
+      {
+        "name": "Complete Markdown artifact",
+        "passed": true,
+        "detail": "174821 characters include the complete final transcript byte and matched the native share file byte-for-byte."
+      },
+      {
+        "name": "Complete paginated PDF artifact",
+        "passed": true,
+        "detail": "44 pages, 362438 bytes; final transcript marker present; native share file matched byte-for-byte."
+      },
+      {
+        "name": "Synthetic artifact cleanup",
+        "passed": true,
+        "detail": "Temporary audio, transcript, and native export artifacts were removed; History was never modified."
+      }
+    ]
+  }
+}

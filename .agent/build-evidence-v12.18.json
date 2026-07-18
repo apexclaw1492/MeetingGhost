@@ -1,0 +1,47 @@
+{
+  "capturedAt": "2026-07-17T11:46:59Z",
+  "appVersion": "v12.18",
+  "evidenceLevel": "source-and-native-build-verified",
+  "reliabilityChanges": [
+    "Whisper, Gemma, and MiniLM initialization uses correlated generation IDs with inactivity and absolute deadlines.",
+    "Progress can extend only the inactivity timer; it cannot keep model preparation alive past the absolute deadline.",
+    "Initialization timeout, error, crash, or synchronous start failure rejects dependent work, persists a visible Retry state, terminates the old worker, and installs a clean replacement.",
+    "Late replies from a superseded generation are ignored; saved audio/checkpoints, deterministic summaries, and hydrated lexical search remain authoritative fallbacks.",
+    "Cached Whisper re-warm remains connected to bounded automatic transcription resume until ready or terminal failure.",
+    "Launch-time native speech and Android decoder capability probes end within five seconds; a stalled native speech probe starts bounded Whisper fallback preparation."
+  ],
+  "typescript": {
+    "tests": { "result": "pass", "passed": 57, "failed": 0 },
+    "focusedCoverage": [
+      "model initialization inactivity timeout",
+      "absolute deadline despite repeated progress",
+      "retry generation supersedes late prior replies",
+      "outstanding worker requests reject on crash",
+      "saved transcription and intelligence fallback invariants"
+    ],
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": {
+    "iosSync": "pass",
+    "androidSync": "pass",
+    "appVersionPresent": "v12.18",
+    "bundleAsset": "assets/index-IVV8llqO.js"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.18",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8734716,
+      "sha256": "cda114ad1a40387423d6553e7ab4f2c0ea713a6f77bd4571aef3919bc789c305"
+    }
+  },
+  "qualificationBoundary": "Build and fault-injection evidence does not prove model timeout/replacement under physical mobile suspension or memory pressure, locked 60/120-minute recording, real saved-audio transcription, interruption recovery, or destination-app receipt."
+}

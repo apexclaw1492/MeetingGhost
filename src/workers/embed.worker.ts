@@ -1,15 +1,16 @@
 import { pipeline, env } from '@xenova/transformers';
+import { SEMANTIC_INDEX_SCHEMA } from '../utils/semanticIndexSchema.ts';
 
 env.allowLocalModels = false;
 
 let embedderPromise: Promise<any> | null = null;
 
 self.onmessage = async (e: MessageEvent) => {
-  const { type, texts, requestId } = e.data;
+  const { type, texts, requestId, initId } = e.data;
 
   try {
     if (type === 'init') {
-      self.postMessage({ status: 'progress', progress: 0 });
+      self.postMessage({ status: 'progress', progress: 0, initId });
       const files = new Map<string, { loaded: number; total: number }>();
       embedderPromise = pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
         progress_callback: (info: any) => {
@@ -17,12 +18,12 @@ self.onmessage = async (e: MessageEvent) => {
             files.set(info.file, { loaded: info.loaded, total: info.total });
             let loaded = 0, total = 0;
             for (const f of files.values()) { loaded += f.loaded; total += f.total; }
-            self.postMessage({ status: 'progress', progress: Math.min(99, Math.round((loaded / total) * 100)) });
+            self.postMessage({ status: 'progress', progress: Math.min(99, Math.round((loaded / total) * 100)), initId });
           }
         }
       });
       await embedderPromise;
-      self.postMessage({ status: 'ready' });
+      self.postMessage({ status: 'ready', initId, embeddingSchema: SEMANTIC_INDEX_SCHEMA });
     }
 
     if (type === 'embed') {
@@ -36,6 +37,6 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({ status: 'embedded', requestId, vectors });
     }
   } catch (error: any) {
-    self.postMessage({ status: 'error', requestId, message: error.message });
+    self.postMessage({ status: 'error', requestId, initId, operation: type, message: error.message });
   }
 };

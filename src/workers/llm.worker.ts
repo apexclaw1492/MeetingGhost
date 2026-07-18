@@ -3,25 +3,25 @@ import { CreateMLCEngine } from "@mlc-ai/web-llm";
 let enginePromise: Promise<any> | null = null;
 
 self.onmessage = async (e: MessageEvent) => {
-  const { type, text, systemPrompt } = e.data;
+  const { type, text, systemPrompt, requestId, initId } = e.data;
 
   try {
     if (type === 'init') {
-      self.postMessage({ status: 'progress', progress: 0 });
+      self.postMessage({ status: 'progress', progress: 0, initId });
       // We use a very small quantized model for mobile browser stability
       enginePromise = CreateMLCEngine("TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC", {
         initProgressCallback: (info) => {
-          self.postMessage({ status: 'progress', progress: Math.round(info.progress * 100) });
+          self.postMessage({ status: 'progress', progress: Math.round(info.progress * 100), initId });
         }
       });
       await enginePromise;
-      self.postMessage({ status: 'ready' });
+      self.postMessage({ status: 'ready', initId });
     }
 
     if (type === 'summarize') {
       if (!enginePromise) throw new Error('LLM Engine not initialized');
       const engine = await enginePromise;
-      self.postMessage({ status: 'processing' });
+      self.postMessage({ status: 'processing', requestId });
       
       const reply = await engine.chat.completions.create({
         messages: [
@@ -30,7 +30,7 @@ self.onmessage = async (e: MessageEvent) => {
         ],
       });
       
-      self.postMessage({ status: 'complete', text: reply.choices[0].message.content });
+      self.postMessage({ status: 'complete', requestId, text: reply.choices[0].message.content });
     }
 
     if (type === 'chat') {
@@ -42,13 +42,13 @@ self.onmessage = async (e: MessageEvent) => {
           { role: "user", content: text }
         ],
       });
-      self.postMessage({ status: 'chat_complete', text: reply.choices[0].message.content });
+      self.postMessage({ status: 'chat_complete', requestId, text: reply.choices[0].message.content });
     }
 
     if (type === 'autoTitle') {
       if (!enginePromise) throw new Error('LLM Engine not initialized');
       const engine = await enginePromise;
-      self.postMessage({ status: 'title_processing' });
+      self.postMessage({ status: 'title_processing', requestId });
       
       const reply = await engine.chat.completions.create({
         messages: [
@@ -57,10 +57,10 @@ self.onmessage = async (e: MessageEvent) => {
         ],
       });
       
-      self.postMessage({ status: 'title_complete', text: reply.choices[0].message.content.replace(/["']/g, "").trim() });
+      self.postMessage({ status: 'title_complete', requestId, text: reply.choices[0].message.content.replace(/["']/g, "").trim() });
     }
   } catch (error: any) {
     // If WebGPU is unsupported (e.g. iOS Safari without flags), this will catch
-    self.postMessage({ status: 'error', message: error.message });
+    self.postMessage({ status: 'error', requestId, initId, operation: type, message: error.message });
   }
 };

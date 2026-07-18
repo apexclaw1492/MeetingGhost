@@ -9,11 +9,11 @@ env.backends.onnx.wasm.numThreads = 1;
 let transcriberPromise: Promise<any> | null = null;
 
 self.onmessage = async (e: MessageEvent) => {
-  const { type, audio, model } = e.data;
+  const { type, audio, model, requestId, initId } = e.data;
 
   try {
     if (type === 'init') {
-      self.postMessage({ status: 'progress', progress: 0 });
+      self.postMessage({ status: 'progress', progress: 0, initId });
       // Aggregate per-file download progress into one overall percentage,
       // otherwise the bar jumps 0-100 once per model file.
       const files = new Map<string, { loaded: number; total: number }>();
@@ -23,19 +23,19 @@ self.onmessage = async (e: MessageEvent) => {
             files.set(info.file, { loaded: info.loaded, total: info.total });
             let loaded = 0, total = 0;
             for (const f of files.values()) { loaded += f.loaded; total += f.total; }
-            self.postMessage({ status: 'progress', progress: Math.min(99, Math.round((loaded / total) * 100)) });
+            self.postMessage({ status: 'progress', progress: Math.min(99, Math.round((loaded / total) * 100)), initId });
           }
         }
       });
       await transcriberPromise;
-      self.postMessage({ status: 'ready' });
+      self.postMessage({ status: 'ready', initId });
     }
 
     if (type === 'transcribe') {
       // Waits if an init is still in flight (e.g. re-warm right after app reload)
       if (!transcriberPromise) throw new Error('Transcriber not initialized');
       const transcriber = await transcriberPromise;
-      self.postMessage({ status: 'processing' });
+      self.postMessage({ status: 'processing', requestId });
 
       // Long audio is processed in 20s windows (smaller peak memory than 30s —
       // WKWebView kills the process on OOM); progress posted per window.
@@ -51,16 +51,16 @@ self.onmessage = async (e: MessageEvent) => {
         chunk_callback: () => {
           seenChunks++;
           self.postMessage({
-            status: 'transcribe_progress',
+            status: 'transcribe_progress', requestId,
             current: Math.min(seenChunks, totalChunks),
             total: totalChunks,
           });
         },
       });
 
-      self.postMessage({ status: 'complete', text: result.text });
+      self.postMessage({ status: 'complete', requestId, text: result.text });
     }
   } catch (error: any) {
-    self.postMessage({ status: 'error', message: error.message });
+    self.postMessage({ status: 'error', requestId, initId, operation: type, message: error.message });
   }
 };

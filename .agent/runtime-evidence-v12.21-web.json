@@ -1,0 +1,35 @@
+{
+  "capturedAt": "2026-07-17T12:39:01Z",
+  "displayedLocalTime": "7/17/2026, 7:39:01 AM",
+  "appVersion": "v12.21",
+  "platform": "web",
+  "installedBuildVisible": true,
+  "largeTranscriptStorageHarness": {
+    "result": "pass",
+    "transcriptCharacters": 1408889,
+    "fullMetadataCharacters": 1429235,
+    "compactMetadataCharacters": 347,
+    "transcriptRemovedOnlyAfterArchive": true,
+    "hydratedExactly": true,
+    "integrityMetadataPreserved": true,
+    "summaryPreserved": true,
+    "segmentCountPreserved": true
+  },
+  "integrityCheck": {
+    "result": "pass",
+    "passed": 8,
+    "failed": 0,
+    "steps": [
+      { "name": "Production saved-audio playback boundary", "detail": "Bounded object URL decoded as 0.300s audio." },
+      { "name": "Metadata-loss audio recovery", "detail": "Verified orphan scan found segment 0 and all 9644 audio bytes without History metadata." },
+      { "name": "Transcript archive and hydration", "detail": "174104 characters restored byte-for-byte with a matching whole-body fingerprint." },
+      { "name": "Whole-meeting private summary", "detail": "Decision and final action markers survived deterministic summarization." },
+      { "name": "Cross-conversation full-text search", "detail": "Exact marker returned from The Meeting Integrity Sentence." },
+      { "name": "Complete Markdown artifact", "detail": "174821 characters include the complete final transcript byte." },
+      { "name": "Complete paginated PDF artifact", "detail": "44 pages, 362438 bytes; final transcript marker present." },
+      { "name": "Synthetic artifact cleanup", "detail": "Temporary audio, transcript, and native export artifacts were removed; History was never modified." }
+    ]
+  },
+  "browserWarningOrErrorLogs": [],
+  "qualificationBoundary": "This proves the v12.21 rendered web archive, hydration, search, summary, Markdown, PDF, and cleanup paths. It does not prove physical native recording/transcription, mobile suspension or memory-pressure behavior, or destination-app receipt."
+}

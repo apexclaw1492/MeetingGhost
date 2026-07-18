@@ -1,0 +1,44 @@
+{
+  "capturedAt": "2026-07-17T10:32:33Z",
+  "appVersion": "v12.12",
+  "evidenceLevel": "source-and-native-build-verified",
+  "typescript": {
+    "tests": {
+      "result": "pass",
+      "passed": 32,
+      "failed": 0
+    },
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": {
+    "iosSync": "pass",
+    "androidSync": "pass"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalReleaseAttempt": {
+      "device": "David's iPhone XIV",
+      "model": "iPhone 14 Pro",
+      "xcodeDestinationId": "00008120-00026C4C3E0B401E",
+      "result": "not-installed",
+      "terminalError": "The developer disk image could not be mounted on this device."
+    }
+  },
+  "android": {
+    "recoveryUnitTests": {
+      "result": "pass",
+      "passed": 4,
+      "failed": 0
+    },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8656652,
+      "sha256": "df716d31730cbf9c3b785ab9b4bf46e8d15cc2d3960bde2bf6d60c2091166e04"
+    },
+    "attachedDeviceCount": 0
+  },
+  "qualificationBoundary": "Build proof is not physical-device reliability proof. v12.12 still requires locked 60-minute and 120-minute recording, native transcription/import, playback/search/summary, interruption recovery, and destination-app Markdown/PDF receipt on physical iOS and Android devices."
+}

@@ -28,16 +28,26 @@ export interface MeetingRecord {
   dur: number;                 // seconds, from recorded audio (not UI time)
   title: string;
   transcript: string;
+  transcriptStored?: boolean;  // full text is durable in IDB; local metadata may omit it
+  transcriptOutcome?: 'text' | 'no_speech'; // explicit terminal result; never infer silence from missing text
+  transcriptChars?: number;    // expected UTF-16 length of the complete transcript
+  transcriptBytes?: number;    // expected UTF-8 byte length of the complete transcript
+  transcriptChecksum?: string; // versioned whole-transcript integrity fingerprint
   summary: string;
   folderId?: string;
   actionItems?: ActionItem[];
   status?: MeetingStatus;
   segments?: number;           // verified segment count on disk
+  segmentIds?: number[];       // exact verified file ids; survives gaps after a failed write
   bytes?: number;              // verified audio bytes on disk
   mimeType?: string;           // segment container type
   audioKind?: 'segments' | 'single'; // 'single' = legacy v9 blob / uploaded file
   tNext?: number;              // transcription checkpoint: next segment index
   tParts?: string[];           // per-segment transcripts until assembly
+  tSubSegment?: number;        // current manifest position split into bounded inference units
+  tSubNext?: number;           // next bounded unit within tSubSegment
+  tSubTotal?: number;          // expected bounded units; detects incomplete sub-checkpoints
+  tSubParts?: string[];        // per-unit transcripts for a long imported segment
   retries?: number;
   recovered?: boolean;         // surfaced after crash recovery
   diag?: string;               // last sanitized error for this meeting
@@ -98,12 +108,15 @@ export const store = {
 
 const BACKUP_KEYS = ['mg_h', 'mg_f', 'mg_settings', 'mg_w', 'mg_g', 'mg_onb'];
 
-export function exportBackup(): string {
+export function exportBackup(hydratedMeetings?: MeetingRecord[]): string {
   const data: Record<string, unknown> = { _meetingghost: 1, exportedAt: new Date().toISOString() };
   for (const k of BACKUP_KEYS) {
     const v = localStorage.getItem(k);
     if (v !== null) { try { data[k] = JSON.parse(v); } catch { data[k] = v; } }
   }
+  // The normal localStorage record intentionally omits transcript bodies once
+  // they are durable in IndexedDB. Backups must contain the hydrated records.
+  if (hydratedMeetings) data.mg_h = hydratedMeetings;
   // Never write the user's API keys/tokens into a shareable backup file
   if (data.mg_settings && typeof data.mg_settings === 'object') {
     delete (data.mg_settings as Record<string, unknown>).claudeKey;
@@ -112,8 +125,13 @@ export function exportBackup(): string {
   return JSON.stringify(data, null, 2);
 }
 
-/* Merge-imports meetings and folders (by id, existing wins); replaces settings. */
-export function importBackup(json: string): { meetings: number; folders: number } {
+/* Parse + merge without writing. The caller archives large transcript bodies
+   before committing compact metadata, avoiding a localStorage quota spike. */
+export function mergeBackup(
+  json: string,
+  currentMeetings: MeetingRecord[] = store.loadMeetings(),
+  currentFolders: Folder[] = store.loadFolders(),
+): { meetings: MeetingRecord[]; folders: Folder[]; settings?: Partial<Settings> } {
   const data = JSON.parse(json);
   if (!data || data._meetingghost !== 1) throw new Error('Not a MeetingGhost backup file.');
 
@@ -123,11 +141,40 @@ export function importBackup(json: string): { meetings: number; folders: number 
     return [...current, ...(incoming as T[]).filter(x => x && x.id && !have.has(x.id))];
   };
 
-  const meetings = mergeById(store.loadMeetings(), data.mg_h);
-  const folders = mergeById(store.loadFolders(), data.mg_f);
-  store.saveMeetings(meetings);
-  store.saveFolders(folders);
-  if (data.mg_settings) store.saveSettings({ ...store.loadSettings(), ...data.mg_settings });
+  const mergeMeetings = (current: MeetingRecord[], incoming: unknown): MeetingRecord[] => {
+    if (!Array.isArray(incoming)) return current;
+    const incomingMeetings = (incoming as MeetingRecord[]).filter(meeting => meeting && meeting.id);
+    const incomingById = new Map(incomingMeetings.map(meeting => [meeting.id, meeting]));
+    const merged = current.map(meeting => {
+      const backup = incomingById.get(meeting.id);
+      if (!backup) return meeting;
 
-  return { meetings: meetings.length, folders: folders.length };
+      // Current recording/session metadata remains authoritative, but a backup
+      // may repair content that compact metadata says was archived even when
+      // that local archive is now unavailable. Mark restored inline text as
+      // unarchived so the caller must write+verify it before compacting again.
+      const restoredTranscript = meeting.transcript || backup.transcript || '';
+      const recoveredFromBackup = !meeting.transcript && !!backup.transcript;
+      return {
+        ...meeting,
+        transcript: restoredTranscript,
+        transcriptStored: recoveredFromBackup ? false : meeting.transcriptStored,
+        transcriptOutcome: recoveredFromBackup ? 'text' : meeting.transcriptOutcome,
+        transcriptChars: recoveredFromBackup ? undefined : meeting.transcriptChars,
+        transcriptBytes: recoveredFromBackup ? undefined : meeting.transcriptBytes,
+        transcriptChecksum: recoveredFromBackup ? undefined : meeting.transcriptChecksum,
+        title: meeting.title || backup.title,
+        summary: meeting.summary || backup.summary || '',
+        actionItems: meeting.actionItems?.length ? meeting.actionItems : backup.actionItems,
+      };
+    });
+    const currentIds = new Set(current.map(meeting => meeting.id));
+    return [...merged, ...incomingMeetings.filter(meeting => !currentIds.has(meeting.id))];
+  };
+
+  return {
+    meetings: mergeMeetings(currentMeetings, data.mg_h),
+    folders: mergeById(currentFolders, data.mg_f),
+    settings: data.mg_settings && typeof data.mg_settings === 'object' ? data.mg_settings : undefined,
+  };
 }

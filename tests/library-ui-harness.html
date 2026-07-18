@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeetingGhost lazy library fixture</title>
+</head>
+<body>
+  <pre id="result">Preparing…</pre>
+  <script type="module">
+    import { deleteMeetingContent, saveMeetingTranscript, transcriptIntegrity } from '/src/utils/meetingContent.ts';
+
+    const result = document.querySelector('#result');
+    const params = new URLSearchParams(location.search);
+    const cleanupId = params.get('cleanup');
+    if (cleanupId) {
+      await deleteMeetingContent(cleanupId).catch(() => {});
+      const previousMeetings = sessionStorage.getItem('library-fixture-previous-mg-h');
+      const previousOnboarding = sessionStorage.getItem('library-fixture-previous-mg-onb');
+      if (previousMeetings === '__missing__') localStorage.removeItem('mg_h');
+      else if (previousMeetings !== null) localStorage.setItem('mg_h', previousMeetings);
+      if (previousOnboarding === '__missing__') localStorage.removeItem('mg_onb');
+      else if (previousOnboarding !== null) localStorage.setItem('mg_onb', previousOnboarding);
+      sessionStorage.removeItem('library-fixture-previous-mg-h');
+      sessionStorage.removeItem('library-fixture-previous-mg-onb');
+      result.textContent = JSON.stringify({ cleaned: true, id: cleanupId });
+    } else {
+      const id = `browser-library-${Date.now()}`;
+      const marker = `lazy-library-final-marker-${Date.now()}`;
+      const transcript = `Opening context. Middle decision. ${marker}. Final verified action.`;
+      sessionStorage.setItem('library-fixture-previous-mg-h', localStorage.getItem('mg_h') ?? '__missing__');
+      sessionStorage.setItem('library-fixture-previous-mg-onb', localStorage.getItem('mg_onb') ?? '__missing__');
+      const integrity = await saveMeetingTranscript(id, transcript);
+      localStorage.setItem('mg_h', JSON.stringify([
+        {
+          id,
+          date: 'Library fixture',
+          dur: 7200,
+          title: 'Lazy Archive Fixture',
+          transcript: '',
+          transcriptStored: true,
+          summary: 'Verified lazy archive summary.',
+          status: 'complete',
+          ...integrity,
+        },
+        {
+          id: `${id}-silent`,
+          date: 'Library fixture',
+          dur: 10,
+          title: 'No Speech Fixture',
+          transcript: '',
+          transcriptStored: false,
+          summary: '',
+          status: 'complete',
+          ...transcriptIntegrity(''),
+        },
+      ]));
+      localStorage.setItem('mg_onb', '1');
+      result.textContent = JSON.stringify({ ready: true, id, marker, transcript });
+    }
+  </script>
+</body>
+</html>

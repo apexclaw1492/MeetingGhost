@@ -1,0 +1,44 @@
+{
+  "capturedAt": "2026-07-17T11:33:41Z",
+  "appVersion": "v12.17",
+  "evidenceLevel": "source-and-native-build-verified",
+  "reliabilityChanges": [
+    "Embedding replies must contain the exact requested vector count, finite values, and one consistent dimension across every indexing batch.",
+    "Incomplete or corrupt semantic results fail before IndexedDB replacement, preserving any older valid index.",
+    "Stored corrupt or gapped vector records must have contiguous indexes, non-empty text, consistent meeting IDs and dimensions, and finite values; invalid records are unindexed and rebuildable.",
+    "An embedding-worker crash rejects all pending requests, resets model state, installs a replacement worker, and visibly preserves full-text search as the fallback."
+  ],
+  "typescript": {
+    "tests": { "result": "pass", "passed": 54, "failed": 0 },
+    "focusedCoverage": [
+      "missing, non-finite, and mixed-dimension embedding rejection",
+      "dimension consistency across multi-batch indexing",
+      "corrupt vector comparison and gapped-index rejection",
+      "reject-all behavior for outstanding worker requests"
+    ],
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": {
+    "iosSync": "pass",
+    "androidSync": "pass",
+    "appVersionPresent": "v12.17",
+    "bundleAsset": "assets/index-D_pjvlIP.js"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.17",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8659282,
+      "sha256": "a8444af147d5846ea79523c74a75116452d005736d2c11e172f400d976a817d8"
+    }
+  },
+  "qualificationBoundary": "Build and fault-injection evidence does not prove physical locked 60/120-minute recording, real saved-audio transcription, interruption recovery, worker replacement under mobile memory pressure, or destination-app receipt."
+}

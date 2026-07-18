@@ -1,0 +1,48 @@
+{
+  "capturedAt": "2026-07-17T12:18:03Z",
+  "appVersion": "v12.20",
+  "result": "pass",
+  "change": "Content-free reliability assertions and native memory-pressure/session telemetry",
+  "reliabilityChanges": [
+    "Diagnostic exports assert exact sorted segment manifests and durable non-sparse transcription checkpoint prefixes/bounds.",
+    "Diagnostic exports assert retained audio metadata for resumable states, completed transcript/summary outcomes, and nonterminal states without exporting titles or meeting content.",
+    "Native session start/status/interruption/segment/memory-pressure/auto-stop/stop events include active state, exact segment/failure counts, committed bytes, recorded duration, and free space where available.",
+    "iOS UIApplication memory warnings and Android onTrimMemory levels reach the recorder adapter without stopping healthy capture.",
+    "Every native/browser free-space check records measured, unknown, or failed terminal diagnostic evidence."
+  ],
+  "web": {
+    "tests": { "result": "pass", "passed": 65, "failed": 0 },
+    "focusedCoverage": [
+      "valid complete reliability snapshot",
+      "sparse manifest and checkpoint rejection",
+      "silent checkpoint acceptance without accepting sparse holes",
+      "diagnostic meeting-content exclusion",
+      "legacy statusless complete-record auditing",
+      "native memory-pressure event remains non-destructive"
+    ],
+    "lint": "pass",
+    "productionBuild": "pass",
+    "capacitorSync": { "ios": "pass", "android": "pass" },
+    "bundleAsset": "assets/index-LExO3HIK.js",
+    "appVersionPresent": "v12.20"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "memoryWarningObserverCompiled": true,
+    "physicalInstall": "not-attempted-for-v12.20",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "onTrimMemoryBridgeCompiled": true,
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "gradleTasks": 371,
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8418894,
+      "sha256": "0867048bb6e158e39bbfb8e600e24185842181a179908a012863702f3bf15c91"
+    }
+  },
+  "qualificationBoundary": "Build, pure-state assertions, and adapter injection do not prove memory-pressure delivery during physical mobile suspension, locked 60/120-minute capture, real saved-audio transcription, interruption recovery, or destination-app receipt."
+}

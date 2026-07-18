@@ -1,0 +1,23 @@
+{
+  "_meetingghost_selftest": 1,
+  "platform": "ios",
+  "running": true,
+  "cycle": 1,
+  "total": 1,
+  "recordSecs": 20,
+  "results": [],
+  "startedAt": "2026-07-12T11:02:54.286Z",
+  "kills": 0,
+  "ladder": [
+    3600
+  ],
+  "activeMeetingId": "1783854174356",
+  "postmortem": {
+    "pulledAt": "2026-07-12T15:45:59Z",
+    "processAlive": false,
+    "preservedSegmentIds": [0],
+    "preservedBytes": 834342,
+    "lastSegmentFinalizedAt": "2026-07-12T11:03:50Z",
+    "result": "FAIL: old v12.0 WebView-only capture did not continue after the phone locked/went offline; the first durable segment survived"
+  }
+}

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeetingGhost storage reliability harness</title>
+</head>
+<body>
+  <h1>MeetingGhost storage reliability harness</h1>
+  <pre id="result">Running…</pre>
+  <script type="module">
+    import {
+      compactMeetingRecords,
+      deleteMeetingContent,
+      hydrateMeetingTranscripts,
+      saveMeetingTranscript,
+    } from '/src/utils/meetingContent.ts';
+
+    const id = `browser-storage-${Date.now()}`;
+    const transcript = Array.from(
+      { length: 20_000 },
+      (_, i) => `Sentence ${i}: durable cross-conversation storage remains searchable.`,
+    ).join('\n');
+    const record = {
+      id,
+      date: 'Storage test',
+      dur: 7200,
+      title: 'Two-hour storage fixture',
+      transcript,
+      transcriptStored: true,
+      summary: 'Storage fixture summary',
+      status: 'complete',
+      segments: 120,
+    };
+
+    try {
+      const integrity = await saveMeetingTranscript(id, transcript);
+      Object.assign(record, integrity);
+      const compact = compactMeetingRecords([record]);
+      const hydrated = await hydrateMeetingTranscripts(compact);
+      const result = {
+        pass: hydrated[0].transcript === transcript,
+        transcriptCharacters: transcript.length,
+        fullMetadataCharacters: JSON.stringify(record).length,
+        compactMetadataCharacters: JSON.stringify(compact[0]).length,
+        transcriptRemovedOnlyAfterArchive: compact[0].transcript === '',
+        hydratedExactly: hydrated[0].transcript === transcript,
+        integrityMetadataPreserved: hydrated[0].transcriptChecksum === integrity.transcriptChecksum,
+        summaryPreserved: hydrated[0].summary === record.summary,
+        segmentCountPreserved: hydrated[0].segments === 120,
+      };
+      document.querySelector('#result').textContent = JSON.stringify(result, null, 2);
+    } catch (error) {
+      document.querySelector('#result').textContent = JSON.stringify({
+        pass: false,
+        error: error instanceof Error ? error.message : String(error),
+      }, null, 2);
+    } finally {
+      await deleteMeetingContent(id).catch(() => {});
+    }
+  </script>
+</body>
+</html>

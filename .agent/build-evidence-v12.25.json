@@ -1,0 +1,48 @@
+{
+  "capturedAt": "2026-07-17T13:39:20Z",
+  "appVersion": "v12.25",
+  "result": "pass",
+  "change": "Terminal-progress library scans and sequential loss-safe backup processing",
+  "reliabilityChanges": [
+    "History and Ask expose completed/total meeting progress and have a five-minute absolute library-scan deadline.",
+    "Whole-library hydration, legacy migration, and backup restore read and archive one transcript at a time.",
+    "Verified backup/restore bodies are released from React memory; an archive failure retains the complete inline body.",
+    "Backup export/import expose stage progress, Cancel, a 15-minute job boundary, and immediate loss-safe Retry."
+  ],
+  "web": {
+    "tests": { "result": "pass", "passed": 79, "failed": 0 },
+    "focusedCoverage": [
+      "500-meeting scan progress and maximum one active archive read",
+      "absolute library scan deadline with no false terminal progress",
+      "200-meeting sequential whole-library hydration",
+      "200-meeting sequential restore with injected middle archive failure retaining complete inline text",
+      "complete Markdown and final-page PDF markers"
+    ],
+    "lint": "pass",
+    "productionBuild": "pass",
+    "capacitorSync": { "ios": "pass", "android": "pass" },
+    "bundleAsset": "assets/index-D77FUQZx.js",
+    "bundleBytes": 908447,
+    "appVersionPresent": "v12.25"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.25",
+    "deviceAvailabilityCheckedAt": "2026-07-17T13:42:46Z",
+    "knownHostGate": "Xcode 26.3 devicectl lists the paired iPhone 14 Pro and iPad as unavailable; the previous signed destination attempt could not mount a developer disk image for the iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "gradleTasks": 371,
+    "javaRuntime": "Android Studio JBR 21.0.10",
+    "physicalDeviceTooling": "adb unavailable in this shell",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8741906,
+      "sha256": "6e2060a87920406a8771ee1f40c8de85e360d879e94837189bc3d5f4769365f9"
+    }
+  },
+  "qualificationBoundary": "Build, unit, high-cardinality storage, and rendered browser proof do not prove locked physical 60/120-minute capture, native saved-audio transcription, interruption or memory-pressure delivery during mobile suspension, or destination-app receipt."
+}

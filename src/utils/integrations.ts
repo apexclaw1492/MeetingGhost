@@ -1,4 +1,5 @@
 import type { MeetingRecord } from './store';
+import { formatDuration } from './time.ts';
 
 /* ─── GitHub Issues ─── */
 
@@ -7,6 +8,7 @@ export async function createGitHubIssue(
   token: string,
   repo: string, // "owner/name"
   meeting: MeetingRecord,
+  timeoutMs = 30_000,
 ): Promise<string> {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Repository must be in "owner/name" form.');
   const items = meeting.actionItems?.length
@@ -18,21 +20,34 @@ export async function createGitHubIssue(
     `_Exported from MeetingGhost — ${meeting.date}_`,
   ].join('\n');
 
-  const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ title: `Meeting: ${meeting.title || 'Untitled Meeting'}`, body }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`GitHub ${res.status}: ${err.message || res.statusText}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: `Meeting: ${meeting.title || 'Untitled Meeting'}`, body }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`GitHub ${res.status}: ${err.message || res.statusText}`);
+    }
+    const issue = await res.json();
+    if (!issue || typeof issue.html_url !== 'string') throw new Error('GitHub returned an invalid issue response. Check the repository before retrying.');
+    return issue.html_url;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`GitHub export timed out after ${Math.ceil(timeoutMs / 1000)} seconds. Nothing was created; retry when the connection is stable.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  const issue = await res.json();
-  return issue.html_url as string;
 }
 
 /* ─── Calendar (.ics) follow-up ─── */
@@ -81,7 +96,7 @@ export function buildMailto(meeting: MeetingRecord): string {
     '',
     meeting.summary || '',
     items ? `\nAction items:\n${items}` : '',
-  ].join('\n').slice(0, 1800); // keep mailto URLs within safe length
+  ].join('\n');
   const subject = `Meeting notes: ${meeting.title || 'Untitled Meeting'}`;
   return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
@@ -94,13 +109,13 @@ export function meetingToMarkdown(meeting: MeetingRecord): string {
     : null;
   return [
     `# ${meeting.title || 'MeetingGhost Transcript'}`,
-    `*${meeting.date} — duration ${Math.floor(meeting.dur / 60)}m${meeting.dur % 60}s*`,
+    `*${meeting.date} — duration ${formatDuration(meeting.dur)}*`,
     '',
     '## Summary',
     meeting.summary || '_No summary._',
     ...(items ? ['', '## Action Items', items] : []),
     '',
     '## Transcript',
-    meeting.transcript || '',
+    meeting.transcript || (meeting.status === 'complete' ? '_No speech was detected in this recording._' : '_Transcript not available._'),
   ].join('\n');
 }

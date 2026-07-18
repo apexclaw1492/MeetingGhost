@@ -6,6 +6,8 @@ class MainViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(FreeDiskPlugin())
         bridge?.registerPluginInstance(NativeSTTPlugin())
+        bridge?.registerPluginInstance(NativeAudioImportPlugin())
+        bridge?.registerPluginInstance(RecordingSessionPlugin())
 
         // Test automation hook: launching with MG_SELFTEST=1 (devicectl
         // --environment-variables) starts the in-app reliability self-test

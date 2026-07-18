@@ -14,6 +14,8 @@
 		A1000005000000000000F1D0 /* NativeSTTPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000006000000000000F1D0 /* NativeSTTPlugin.swift */; };
 		A1000003000000000000F1D0 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004000000000000F1D0 /* MainViewController.swift */; };
 		A1000001000000000000F1D0 /* FreeDiskPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002000000000000F1D0 /* FreeDiskPlugin.swift */; };
+		A1000007000000000000F1D0 /* RecordingSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000008000000000000F1D0 /* RecordingSessionPlugin.swift */; };
+		A1000009000000000000F1D0 /* NativeAudioImportPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000A000000000000F1D0 /* NativeAudioImportPlugin.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
@@ -28,6 +30,8 @@
 		A1000006000000000000F1D0 /* NativeSTTPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSTTPlugin.swift; sourceTree = "<group>"; };
 		A1000004000000000000F1D0 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		A1000002000000000000F1D0 /* FreeDiskPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeDiskPlugin.swift; sourceTree = "<group>"; };
+		A1000008000000000000F1D0 /* RecordingSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSessionPlugin.swift; sourceTree = "<group>"; };
+		A100000A000000000000F1D0 /* NativeAudioImportPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioImportPlugin.swift; sourceTree = "<group>"; };
 		504EC30C1FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -73,6 +77,8 @@
 				A1000006000000000000F1D0 /* NativeSTTPlugin.swift */,
 				A1000004000000000000F1D0 /* MainViewController.swift */,
 				A1000002000000000000F1D0 /* FreeDiskPlugin.swift */,
+				A1000008000000000000F1D0 /* RecordingSessionPlugin.swift */,
+				A100000A000000000000F1D0 /* NativeAudioImportPlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -168,6 +174,8 @@
 				A1000005000000000000F1D0 /* NativeSTTPlugin.swift in Sources */,
 				A1000003000000000000F1D0 /* MainViewController.swift in Sources */,
 				A1000001000000000000F1D0 /* FreeDiskPlugin.swift in Sources */,
+				A1000007000000000000F1D0 /* RecordingSessionPlugin.swift in Sources */,
+				A1000009000000000000F1D0 /* NativeAudioImportPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,0 +1,31 @@
+{
+  "capturedAt": "2026-07-17T11:03:02Z",
+  "appVersion": "v12.14",
+  "evidenceLevel": "source-and-native-build-verified",
+  "reliabilityChanges": [
+    "Duplicate-ID backup restore repairs a missing current transcript archive while preserving a valid current transcript.",
+    "Complete-transcript exports deterministically restore and persist a missing summary before generating transcript, Markdown, or PDF content."
+  ],
+  "typescript": {
+    "tests": { "result": "pass", "passed": 43, "failed": 0 },
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": { "iosSync": "pass", "androidSync": "pass", "appVersionPresent": "v12.14" },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.14",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8657720,
+      "sha256": "fa2187092d8b854456f58360320ee4ea31a11c4ba036616d25b35af3c7103bf6"
+    }
+  },
+  "qualificationBoundary": "Build and fault-injection evidence does not prove locked 60/120-minute recording, physical native playback/import recovery, real saved-audio transcription, restored-backup behavior on device, interruption recovery, or destination-app Markdown/PDF receipt."
+}

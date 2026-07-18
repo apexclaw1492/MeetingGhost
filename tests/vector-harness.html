@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeetingGhost semantic index reliability harness</title>
+</head>
+<body>
+  <h1>MeetingGhost semantic index reliability harness</h1>
+  <pre id="result">Running…</pre>
+  <script type="module">
+    import { idb } from '/src/utils/idb.ts';
+    import { transcriptIntegrity } from '/src/utils/meetingContent.ts';
+    import { SEMANTIC_INDEX_SCHEMA } from '/src/utils/semanticIndexSchema.ts';
+    import {
+      chunkTranscript,
+      deleteMeetingVectors,
+      indexableMeetingCount,
+      indexedMeetingIds,
+      saveMeetingVectors,
+      searchVectors,
+    } from '/src/utils/vectors.ts';
+
+    const id = `browser-vector-${Date.now()}`;
+    const meeting = transcript => ({
+      id,
+      date: 'Semantic test',
+      dur: 120,
+      title: 'Semantic fixture',
+      transcript,
+      summary: 'Fixture summary',
+      status: 'complete',
+      ...transcriptIntegrity(transcript),
+    });
+    const original = meeting('Original first decision. Original final action.');
+    const chunks = chunkTranscript(original.transcript).map((text, chunkIndex) => ({
+      text,
+      chunkIndex,
+      vector: chunkIndex % 2 ? [0, 1] : [1, 0],
+    }));
+
+    try {
+      await saveMeetingVectors(original, chunks);
+      const stored = await idb.get('vectors', id);
+      const currentIds = await indexedMeetingIds([original]);
+      const currentHits = await searchVectors([1, 0], [original]);
+      const replaced = meeting('Repaired first decision. Entirely different final action.');
+      const staleIds = await indexedMeetingIds([replaced]);
+      const staleHits = await searchVectors([1, 0], [replaced]);
+      const noSpeech = meeting('');
+      const indexableCount = indexableMeetingCount([original, noSpeech]);
+      const result = {
+        pass: stored?.version === 2
+          && stored?.embeddingSchema === SEMANTIC_INDEX_SCHEMA
+          && currentIds.has(id)
+          && currentHits.length > 0
+          && staleIds.size === 0
+          && staleHits.length === 0
+          && indexableCount === 1,
+        versionedEnvelope: stored?.version === 2,
+        embeddingSchemaBound: stored?.embeddingSchema === SEMANTIC_INDEX_SCHEMA,
+        currentTranscriptIndexed: currentIds.has(id),
+        currentTranscriptSearchable: currentHits.length > 0,
+        replacementMarkedStale: staleIds.size === 0,
+        staleExcerptsExcluded: staleHits.length === 0,
+        noSpeechExcludedFromIndexDenominator: indexableCount === 1,
+      };
+      document.querySelector('#result').textContent = JSON.stringify(result, null, 2);
+    } catch (error) {
+      document.querySelector('#result').textContent = JSON.stringify({
+        pass: false,
+        error: error instanceof Error ? error.message : String(error),
+      }, null, 2);
+    } finally {
+      await deleteMeetingVectors(id).catch(() => {});
+    }
+  </script>
+</body>
+</html>

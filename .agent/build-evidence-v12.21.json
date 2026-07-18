@@ -1,0 +1,47 @@
+{
+  "capturedAt": "2026-07-17T12:40:00Z",
+  "appVersion": "v12.21",
+  "result": "pass",
+  "change": "Durable whole-transcript integrity and fail-closed intelligence hydration",
+  "reliabilityChanges": [
+    "Completed text transcripts persist explicit outcome, UTF-16 character count, UTF-8 byte count, and a versioned whole-body FNV-1a 64-bit integrity fingerprint.",
+    "Startup, search, Ask, semantic indexing, summary, backup, Markdown/PDF/share, GitHub, Calendar, and Email reject missing, shortened, or same-length altered archived text before use.",
+    "No-speech is an explicit verified empty outcome; ambiguous missing text is visible and recreatable from retained audio rather than silently exported as silence.",
+    "Legacy non-empty archives gain integrity metadata on hydration, and backup-recovered text is written and read back exactly before compact metadata may omit it.",
+    "Release diagnostics assert completed transcript-integrity metadata without exporting checksum values or meeting content."
+  ],
+  "web": {
+    "tests": { "result": "pass", "passed": 69, "failed": 0 },
+    "focusedCoverage": [
+      "exact archive round-trip with retained integrity metadata",
+      "non-empty truncated archive rejection",
+      "same-length altered archive rejection",
+      "legacy archive integrity migration",
+      "explicit no-speech acceptance and ambiguous-empty rejection",
+      "content-free reliability assertion and diagnostics metadata"
+    ],
+    "lint": "pass",
+    "productionBuild": "pass",
+    "capacitorSync": { "ios": "pass", "android": "pass" },
+    "bundleAsset": "assets/index-DMqcTfM_.js",
+    "appVersionPresent": "v12.21"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.21",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "gradleTasks": 371,
+    "javaRuntime": "Android Studio JBR 21.0.10",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8418894,
+      "sha256": "70997228c06e904c9873a34c99df12680b65383eedcd1515914a83ab48f109c6"
+    }
+  },
+  "qualificationBoundary": "Build, unit, and rendered browser integrity proof do not prove locked physical 60/120-minute capture, native saved-audio transcription, interruption or memory-pressure delivery during mobile suspension, or destination-app receipt."
+}

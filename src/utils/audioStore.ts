@@ -13,6 +13,8 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { idb } from './idb';
 import { log, logError } from './diag';
+import { segmentIdsFromKeys, segmentIdsFromNames } from './segmentManifest';
+import { withTimeout } from './async.ts';
 
 /* App-local native plugin (ios/App/App/FreeDiskPlugin.swift) — WKWebView has
    no honest view of device free space, so we ask the OS directly. */
@@ -61,13 +63,19 @@ export async function writeSegment(meetingId: string, seg: number, blob: Blob): 
   log('audio.segment.written', { meetingId, seg, bytes: blob.size, native: isNative() });
 }
 
-/* Absolute filesystem path of a segment for native consumers (Speech plugin
-   reads the file directly — no base64 shuttling through the WebView). */
-export async function segmentNativePath(meetingId: string, seg: number): Promise<string | null> {
+/** Raw app-container URI for native consumers and direct WebView playback. */
+export async function segmentNativeUri(meetingId: string, seg: number): Promise<string | null> {
   try {
     const res = await Filesystem.getUri({ path: pathFor(meetingId, seg), directory: Directory.Data });
-    return res.uri.replace(/^file:\/\//, '');
+    return res.uri || null;
   } catch { return null; }
+}
+
+/* Absolute filesystem path of a segment for native transcription plugins.
+   The native plugin reads the file directly — no base64 crosses the WebView. */
+export async function segmentNativePath(meetingId: string, seg: number): Promise<string | null> {
+  const uri = await segmentNativeUri(meetingId, seg);
+  return uri ? uri.replace(/^file:\/\//, '') : null;
 }
 
 export async function readSegment(meetingId: string, seg: number, mimeType: string): Promise<Blob | null> {
@@ -83,17 +91,91 @@ export async function readSegment(meetingId: string, seg: number, mimeType: stri
   }
 }
 
-/* Counts verified segments on disk — used by crash recovery to reconstruct
-   what actually survived, independent of what the UI believed. */
-export async function countSegmentsOnDisk(meetingId: string): Promise<number> {
+/* Lists exact verified segment numbers on disk. A manifest is safer than a
+   count: if seg-12 fails but seg-13 saves, both playback and transcription
+   must skip the hole without discarding valid later audio. */
+export async function listSegmentsOnDisk(meetingId: string): Promise<number[]> {
   try {
     if (isNative()) {
       const res = await Filesystem.readdir({ path: dirFor(meetingId), directory: Directory.Data });
-      return res.files.filter(f => f.name.startsWith('seg-')).length;
+      return segmentIdsFromNames(res.files.map(f => f.name));
     }
     const keys = await idb.keys('audio');
-    return keys.filter(k => String(k).startsWith(`${meetingId}:seg:`)).length;
-  } catch { return 0; }
+    return segmentIdsFromKeys(meetingId, keys);
+  } catch { return []; }
+}
+
+export interface StoredAudioManifest {
+  meetingId: string;
+  segmentIds: number[];
+  totalBytes: number;
+}
+
+/**
+ * Enumerates verified audio independently of localStorage meeting metadata.
+ * This is the last-resort recovery boundary when WebView data is cleared but
+ * app-private native files (or IndexedDB audio) still survive.
+ */
+export async function listStoredAudioManifests(): Promise<StoredAudioManifest[]> {
+  try {
+    if (isNative()) {
+      // A new install legitimately has no recordings root. Create the empty
+      // container first so a later readdir failure means real I/O trouble and
+      // can be surfaced instead of being mistaken for "no recordings".
+      try {
+        await Filesystem.stat({ path: 'recordings', directory: Directory.Data });
+      } catch {
+        await Filesystem.mkdir({ path: 'recordings', directory: Directory.Data, recursive: true });
+      }
+      const meetings = await Filesystem.readdir({ path: 'recordings', directory: Directory.Data });
+      const manifests: StoredAudioManifest[] = [];
+      for (const entry of meetings.files) {
+        const meetingId = entry.name;
+        if (!/^[A-Za-z0-9_-]+$/.test(meetingId)) continue;
+        try {
+          const contents = await Filesystem.readdir({ path: dirFor(meetingId), directory: Directory.Data });
+          const segmentIds = segmentIdsFromNames(contents.files.map(file => file.name));
+          if (!segmentIds.length) continue;
+          const completed = new Set(segmentIds.map(segment => `seg-${segment}`));
+          const totalBytes = contents.files.reduce(
+            (sum, file) => completed.has(file.name) ? sum + Math.max(0, Number(file.size) || 0) : sum,
+            0,
+          );
+          manifests.push({ meetingId, segmentIds, totalBytes });
+        } catch (error) {
+          logError('audio.manifest.directory.fail', error, { meetingId });
+          throw new Error(`Could not inspect saved audio for ${meetingId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      return manifests;
+    }
+
+    const keys = await idb.keys('audio');
+    const meetingIds = new Set<string>();
+    for (const key of keys) {
+      const match = /^(.+):seg:\d+$/.exec(String(key));
+      if (match) meetingIds.add(match[1]);
+    }
+    const manifests: StoredAudioManifest[] = [];
+    for (const meetingId of meetingIds) {
+      const segmentIds = segmentIdsFromKeys(meetingId, keys);
+      let totalBytes = 0;
+      for (const segment of segmentIds) {
+        const blob = await idb.get<Blob>('audio', `${meetingId}:seg:${segment}`);
+        if (!blob) throw new Error(`Saved audio index points to a missing segment: ${meetingId}/seg-${segment}`);
+        totalBytes += blob.size;
+      }
+      if (segmentIds.length) manifests.push({ meetingId, segmentIds, totalBytes });
+    }
+    return manifests;
+  } catch (error) {
+    logError('audio.manifest.scan.fail', error);
+    throw new Error(`Could not enumerate saved recordings: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+export async function countSegmentsOnDisk(meetingId: string): Promise<number> {
+  return (await listSegmentsOnDisk(meetingId)).length;
 }
 
 export async function deleteMeetingAudio(meetingId: string): Promise<void> {
@@ -119,13 +201,30 @@ export async function deleteMeetingAudio(meetingId: string): Promise<void> {
 export async function freeBytes(): Promise<number | null> {
   try {
     if (isNative()) {
-      const r = await FreeDisk.free();
-      return r.free >= 0 ? r.free : null;
+      const r = await withTimeout(
+        FreeDisk.free(),
+        5_000,
+        'Device free-space check timed out.',
+      );
+      const available = r.free >= 0 ? r.free : null;
+      log('storage.free.checked', { native: true, freeBytes: available ?? 'unknown', totalBytes: r.total });
+      return available;
     }
-    const est = await navigator.storage?.estimate?.();
-    if (est?.quota != null && est.usage != null) return est.quota - est.usage;
+    const estimate = navigator.storage?.estimate?.();
+    const est = estimate
+      ? await withTimeout(estimate, 5_000, 'Browser storage estimate timed out.')
+      : undefined;
+    if (est?.quota != null && est.usage != null) {
+      const available = est.quota - est.usage;
+      log('storage.free.checked', { native: false, freeBytes: available, quotaBytes: est.quota, usageBytes: est.usage });
+      return available;
+    }
+    log('storage.free.checked', { native: false, freeBytes: 'unknown' });
     return null;
-  } catch { return null; }
+  } catch (error) {
+    logError('storage.free.check.fail', error, { native: isNative() });
+    return null;
+  }
 }
 
 export const STORAGE_WARN_BYTES = 500 * 1024 * 1024;  // warn below 500 MB

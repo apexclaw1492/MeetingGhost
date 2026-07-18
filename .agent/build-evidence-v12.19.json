@@ -1,0 +1,47 @@
+{
+  "capturedAt": "2026-07-17T11:58:58Z",
+  "appVersion": "v12.19",
+  "evidenceLevel": "source-and-native-build-verified",
+  "reliabilityChanges": [
+    "Native recorder startup cancellation spans listener registration and the platform start promise.",
+    "A listener resolving after cancellation is detached and cannot authorize capture or leak events into a later meeting.",
+    "A platform recorder start resolving active after cancellation triggers another bounded stop before the stale result is rejected.",
+    "Native speech cleanup is bounded before Retry and after failure; uncertainty preserves audio/checkpoints and visibly requires reopen before another recognizer can start.",
+    "Native recorder flush/listener cleanup, import progress-listener attach/remove, and native/browser free-space probes have terminal deadlines.",
+    "A late native import listener is detached asynchronously rather than leaking into another import."
+  ],
+  "typescript": {
+    "tests": { "result": "pass", "passed": 59, "failed": 0 },
+    "focusedCoverage": [
+      "native platform start resolves after cancellation and is stopped again",
+      "native listener resolves after cancellation and is detached before capture",
+      "generic stalled platform-operation deadlines",
+      "recording startup recovery with verified, empty, and uncertain storage evidence",
+      "saved transcription checkpoint and export completeness invariants"
+    ],
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": {
+    "iosSync": "pass",
+    "androidSync": "pass",
+    "appVersionPresent": "v12.19",
+    "bundleAsset": "assets/index-Bk0fUej9.js"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.19",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8735394,
+      "sha256": "141cc6e82ca43f2cf49aa05bc3a03f13ca29e11afc07029959e3005e02332cad"
+    }
+  },
+  "qualificationBoundary": "Build and race-injection evidence does not prove late-start/cancel behavior under physical mobile suspension, locked 60/120-minute recording, real saved-audio transcription, interruption recovery, or destination-app receipt."
+}

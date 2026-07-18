@@ -1,0 +1,32 @@
+{
+  "capturedAt": "2026-07-17T10:42:16Z",
+  "appVersion": "v12.13",
+  "evidenceLevel": "source-and-native-build-verified",
+  "reliabilityChanges": [
+    "Native segmented and imported audio plays from a direct protected-file URL without a complete base64 WebView read.",
+    "Native import callback failures preserve any verified atomically published audio before cleanup.",
+    "Deterministic summaries are persisted before bounded optional cloud or local model refinement."
+  ],
+  "typescript": {
+    "tests": { "result": "pass", "passed": 38, "failed": 0 },
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": { "iosSync": "pass", "androidSync": "pass" },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.13",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8657425,
+      "sha256": "aa6b4e3763696795a51a7f541c406aef42ce39f21a2382a4efa09dbf35bf9204"
+    }
+  },
+  "qualificationBoundary": "Build and fault-injection evidence does not prove locked 60/120-minute recording, physical native playback/import recovery, real saved-audio transcription, interruption recovery, or destination-app Markdown/PDF receipt."
+}

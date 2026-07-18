@@ -1,0 +1,46 @@
+{
+  "capturedAt": "2026-07-17T13:06:07Z",
+  "appVersion": "v12.23",
+  "result": "pass",
+  "change": "Scale-bounded, cancellable, resumable semantic indexing",
+  "reliabilityChanges": [
+    "Semantic freshness, count, and diagnostic checks use one bounded IndexedDB getAll transaction independent of meeting count.",
+    "Manual and automatic semantic jobs have a 15-minute whole-job deadline in addition to the two-minute per-batch timeout.",
+    "Manual indexing shows meeting and transcript-section progress, supports Cancel, retains complete verified meeting indexes, and resumes remaining work.",
+    "Only unique transcribed meetings count toward semantic completion; no-speech and untranscribed recordings cannot create a false permanent deficit."
+  ],
+  "web": {
+    "tests": { "result": "pass", "passed": 74, "failed": 0 },
+    "focusedCoverage": [
+      "500-meeting freshness scan uses one bulk read and zero per-meeting reads",
+      "exact transcript and embedding-schema index identity",
+      "same-ID replacement and altered excerpt exclusion",
+      "legacy and corrupt index rebuild",
+      "no-speech denominator exclusion"
+    ],
+    "lint": "pass",
+    "productionBuild": "pass",
+    "capacitorSync": { "ios": "pass", "android": "pass" },
+    "bundleAsset": "assets/index-CchWJuto.js",
+    "appVersionPresent": "v12.23"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.23",
+    "knownHostGate": "devicectl timed out waiting for CoreDeviceService to fully initialize; the previous Xcode 26.3 attempt could not mount a developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "gradleTasks": 371,
+    "javaRuntime": "Android Studio JBR 21.0.10",
+    "physicalDeviceTooling": "adb unavailable in this shell",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8740068,
+      "sha256": "8bc76dec5e0adf2ba83fea0742c4531c1ba8a3d8bc0096ece7e6f3ac155a00a8"
+    }
+  },
+  "qualificationBoundary": "Build, unit, high-cardinality storage, and rendered browser proof do not prove locked physical 60/120-minute capture, native saved-audio transcription, interruption or memory-pressure delivery during mobile suspension, or destination-app receipt."
+}

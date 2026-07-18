@@ -1,0 +1,34 @@
+{
+  "capturedAt": "2026-07-17T11:11:03Z",
+  "appVersion": "v12.15",
+  "evidenceLevel": "source-and-native-build-verified",
+  "reliabilityChanges": [
+    "GitHub, Calendar, and Email hydrate complete transcript content and restore a missing private summary before handoff.",
+    "Interrupted partial transcripts cannot authorize export.",
+    "Long email drafts fall back visibly to complete meeting share instead of silently truncating content.",
+    "GitHub request and response-body processing terminate after 30 seconds.",
+    "Startup, backup creation, and restore proactively persist missing summaries for completed transcripts."
+  ],
+  "typescript": {
+    "tests": { "result": "pass", "passed": 46, "failed": 0 },
+    "productionBuild": "pass",
+    "lint": "pass"
+  },
+  "nativeAssets": { "iosSync": "pass", "androidSync": "pass", "appVersionPresent": "v12.15" },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.15",
+    "knownHostGate": "Xcode 26.3 cannot mount the developer disk image for the paired iOS 26.5.2 iPhone."
+  },
+  "android": {
+    "recoveryUnitTests": { "result": "pass", "passed": 4, "failed": 0 },
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8658086,
+      "sha256": "d201e9e9c46f13c29469b5deadf945ab2a40f2fb1d514a7187b988604bea5e02"
+    }
+  },
+  "qualificationBoundary": "Build and fault-injection evidence does not prove locked 60/120-minute recording, physical native playback/import recovery, real saved-audio transcription, interruption recovery, or destination-app receipt of Markdown, PDF, Calendar, Email, or GitHub handoffs."
+}

@@ -1,0 +1,24 @@
+{
+  "_meetingghost_selftest": 1,
+  "platform": "ios",
+  "running": false,
+  "cycle": 2,
+  "total": 1,
+  "recordSecs": 20,
+  "results": [
+    {
+      "cycle": 1,
+      "saved": true,
+      "transcribed": true,
+      "status": "complete",
+      "segments": 15,
+      "bytes": 13596559,
+      "dur": 900,
+      "ms": 907297
+    }
+  ],
+  "startedAt": "2026-07-12T10:46:04.105Z",
+  "kills": 0,
+  "ladder": [900],
+  "finishedAt": "2026-07-12T11:01:11.456Z"
+}

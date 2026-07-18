@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeetingGhost scale library fixture</title>
+</head>
+<body>
+  <pre id="result">Preparing…</pre>
+  <script type="module">
+    import { deleteMeetingContent, saveMeetingTranscript } from '/src/utils/meetingContent.ts';
+
+    const result = document.querySelector('#result');
+    const params = new URLSearchParams(location.search);
+    const cleanup = params.has('cleanup');
+    const idsKey = 'scale-library-fixture-ids';
+    const previousMeetingsKey = 'scale-library-previous-mg-h';
+    const previousOnboardingKey = 'scale-library-previous-mg-onb';
+
+    if (cleanup) {
+      const ids = JSON.parse(sessionStorage.getItem(idsKey) || '[]');
+      for (const id of ids) await deleteMeetingContent(id).catch(() => {});
+      const previousMeetings = sessionStorage.getItem(previousMeetingsKey);
+      const previousOnboarding = sessionStorage.getItem(previousOnboardingKey);
+      if (previousMeetings === '__missing__') localStorage.removeItem('mg_h');
+      else if (previousMeetings !== null) localStorage.setItem('mg_h', previousMeetings);
+      if (previousOnboarding === '__missing__') localStorage.removeItem('mg_onb');
+      else if (previousOnboarding !== null) localStorage.setItem('mg_onb', previousOnboarding);
+      sessionStorage.removeItem(idsKey);
+      sessionStorage.removeItem(previousMeetingsKey);
+      sessionStorage.removeItem(previousOnboardingKey);
+      result.textContent = JSON.stringify({ cleaned: true, count: ids.length });
+    } else {
+      const count = Math.max(1, Math.min(1000, Number(params.get('count')) || 400));
+      const prefix = `browser-scale-${Date.now()}`;
+      const marker = `scale-library-final-marker-${Date.now()}`;
+      const ids = [];
+      const meetings = [];
+      sessionStorage.setItem(previousMeetingsKey, localStorage.getItem('mg_h') ?? '__missing__');
+      sessionStorage.setItem(previousOnboardingKey, localStorage.getItem('mg_onb') ?? '__missing__');
+      for (let index = 0; index < count; index++) {
+        const id = `${prefix}-${index}`;
+        const transcript = `${`Archived meeting ${index} verified context. `.repeat(100)}${index === count - 1 ? marker : `ordinary-marker-${index}`}`;
+        const integrity = await saveMeetingTranscript(id, transcript);
+        ids.push(id);
+        meetings.push({
+          id,
+          date: 'Scale fixture',
+          dur: 7200,
+          title: `Scale Archive ${index + 1}`,
+          transcript: '',
+          transcriptStored: true,
+          summary: `Verified summary ${index + 1}.`,
+          status: 'complete',
+          ...integrity,
+        });
+        if ((index + 1) % 25 === 0) result.textContent = `Preparing ${index + 1}/${count}…`;
+      }
+      sessionStorage.setItem(idsKey, JSON.stringify(ids));
+      localStorage.setItem('mg_h', JSON.stringify(meetings));
+      localStorage.setItem('mg_onb', '1');
+      result.textContent = JSON.stringify({ ready: true, count, prefix, marker });
+    }
+  </script>
+</body>
+</html>

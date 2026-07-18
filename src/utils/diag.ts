@@ -3,6 +3,9 @@
    Settings so failed sessions on a phone can be investigated. */
 
 import { Capacitor } from '@capacitor/core';
+import type { MeetingRecord } from './store.ts';
+import { buildReliabilitySnapshot, diagnosticMeetingMetadata } from './reliabilityAssertions.ts';
+import { indexedMeetingIds } from './vectors.ts';
 
 const KEY = 'mg_diag';
 const MAX_EVENTS = 600;
@@ -60,21 +63,38 @@ export async function exportDiagnostics(appVersion: string): Promise<string> {
     device.freeBytes = await freeBytes();
   } catch { /* unknown */ }
 
+  let meetings: MeetingRecord[] = [];
+  try { meetings = JSON.parse(localStorage.getItem('mg_h') || '[]'); }
+  catch { /* malformed metadata is represented by an empty collection */ }
+
+  const textMeetings = meetings.filter(meeting => meeting.transcriptOutcome === 'text');
+  let semanticIndex: Record<string, unknown> = {
+    status: 'unavailable',
+    textMeetings: textMeetings.length,
+    current: 0,
+    staleOrMissing: textMeetings.length,
+  };
+  try {
+    const current = await indexedMeetingIds(meetings);
+    semanticIndex = {
+      status: 'ready',
+      textMeetings: textMeetings.length,
+      current: current.size,
+      staleOrMissing: Math.max(0, textMeetings.length - current.size),
+    };
+  } catch (error) {
+    semanticIndex.errorType = error instanceof Error ? error.name : 'UnknownError';
+  }
+
   return JSON.stringify({
-    _meetingghost_diagnostics: 1,
+    _meetingghost_diagnostics: 3,
     exportedAt: new Date().toISOString(),
     appVersion,
     device,
     // meeting metadata only: ids/states/sizes, never titles or content
-    meetings: (() => {
-      try {
-        return JSON.parse(localStorage.getItem('mg_h') || '[]').map((m: Record<string, unknown>) => ({
-          id: m.id, status: m.status, dur: m.dur, bytes: m.bytes,
-          segments: m.segments, retries: m.retries, lastError: m.diag,
-          hasTranscript: !!(m.transcript as string)?.length,
-        }));
-      } catch { return []; }
-    })(),
+    reliability: buildReliabilitySnapshot(meetings),
+    semanticIndex,
+    meetings: meetings.map(diagnosticMeetingMetadata),
     events: load(),
   }, null, 2);
 }
