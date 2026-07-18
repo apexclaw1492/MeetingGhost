@@ -1,4 +1,4 @@
-# Mobile Reliability Test Report — v12.25
+# Mobile Reliability Test Report — v12.26
 
 ## Current qualification status (2026-07-17)
 
@@ -6,25 +6,49 @@
 |---|---|---|
 | 15-minute iPhone recording + Apple Speech | Physical iPhone 14 Pro Release run, 15/15 segments | **PASS** |
 | 25-cycle save/transcribe stability | Physical iPhone 14 Pro prior Release build, 25/25 | **PASS** |
-| Locked/background recording on v12.25 | Native capture compiles; no completed physical run | **UNPROVEN** |
-| 60-minute / two-hour recording on v12.25 | Earlier WebView path failed; native replacement not run | **FAIL HISTORICALLY / UNPROVEN REPLACEMENT** |
+| Locked/background recording on v12.26 | Native capture compiles; no completed physical run | **UNPROVEN** |
+| 60-minute / two-hour recording on v12.26 | Earlier WebView path failed; native replacement not run | **FAIL HISTORICALLY / UNPROVEN REPLACEMENT** |
 | Android recording/transcription/import | Native capture/import/decode/STT build; API 34 launch and capability fallback verified; no physical device run | **PASS BUILD/EMULATOR / UNPROVEN DEVICE** |
 | iOS native import + bounded Apple Speech | Streamed picker and one-minute checkpoint source compile; no physical import | **PASS BUILD / UNPROVEN DEVICE** |
-| Summary, search, playback failure UX, long export, transcript archival | 79 automated tests + v12.25 400-meeting progress/cancel/retry proof + installed v12.10 Android full-chain integrity run | **PASS WEB/EMULATOR, NOT DEVICE-SOAKED** |
-| Current v12.25 assets/native projects | 79 tests, web build/lint, both native asset syncs, unsigned iOS Simulator build, and Android unit/assemble/lint pass; v12.10 API 34 launch/integrity remains prior runtime evidence | **PASS BUILD; v12.25 DEVICE RUN PENDING** |
+| Summary, search, playback/deletion failure UX, long export, transcript archival | 87 automated tests + v12.25 400-meeting progress/cancel/retry proof + v12.26 integrity/accessibility browser proof + installed v12.10 Android full-chain integrity run | **PASS WEB/EMULATOR, NOT DEVICE-SOAKED** |
+| Accessibility | v12.26 automated semantics/target/focus/motion contracts and 390px rendered flow pass | **PASS SOURCE/BROWSER; VOICEOVER/TALKBACK/LARGEST TEXT UNPROVEN** |
+| Current v12.26 assets/native projects | 87 tests, web build/lint, both native asset syncs, unsigned iOS Simulator build, and Android unit/assemble/lint pass; v12.10 API 34 launch/integrity remains prior runtime evidence | **PASS BUILD; v12.26 DEVICE RUN PENDING** |
 
 Release decision: **do not describe the app as hours-long reliable yet.** The
-next decisive evidence is a v12.25 physical native-capture screen-lock run. The
+next decisive evidence is a v12.26 physical native-capture screen-lock run. The
 recommended native segmented architecture is now implemented but not yet
 qualified; see `.agent/RELIABILITY_OPTIONS.md`.
 
-Live device attempt (rechecked 2026-07-17): David’s iPhone XIV remains paired
-as an iPhone 14 Pro running iOS 26.5.2 with Developer Mode enabled, but the
-2026-07-17T13:42:46Z `devicectl list devices` result reports it `unavailable`;
-the paired iPad is also `unavailable`. The host has Xcode 26.3; the most recent signed Release destination
-attempt timed out with “The developer disk image could not be mounted on this device.” No v12.25 app was
-installed or run. No physical Android is connected, and `adb` is not currently
+Live device attempt (rechecked 2026-07-18T04:41:23Z): Xcode lists David’s iPhone
+XIV as a possible iOS destination, but `devicectl list devices` timed out while
+waiting for CoreDeviceService to initialize. The most recent signed Release
+attempt still ended at the developer-disk-image boundary; no v12.26 app was
+installed or run. No physical Android was discovered, and `adb` is not
 available in this shell.
+
+## v12.26 visible recovery and accessible release flow (2026-07-17)
+
+- Loss-safe deletion keeps History metadata until audio, transcript, and vector
+  cleanup all succeed; partial and stalled failures are visible and retryable.
+- Diagnostics and the integrity suite have whole-job deadlines and visible
+  terminal states. Clipboard failure is no longer swallowed.
+- First launch leaves optional models uninstalled until the user chooses them.
+  Local deterministic summary and full-text search remain clearly available.
+- System font/text scaling, keyboard focus, reduced motion, forced colors, 48px
+  coarse-pointer targets, named modal/navigation/forms/progress/live regions,
+  and accurate setup copy are now explicit contracts.
+- 87/87 tests, production build/lint, both Capacitor syncs, unsigned iOS
+  Simulator build, and Android unit/assemble/lint pass (371 tasks). APK:
+  8,743,317 bytes; SHA-256
+  `4d7e96bc9fd6a3f1b22a94afa1dbabcf04e2f48365645f6bbdd230e4583c5775`.
+  Evidence: `.agent/build-evidence-v12.26.json`.
+- Rendered at 390px, the flow has no horizontal overflow, current navigation
+  and inputs are named, primary targets meet 44px (48px for coarse-pointer CSS),
+  focus shows a 3px outline, diagnostics succeeds visibly, and all eight
+  intelligence stages pass without browser warnings/errors. Evidence:
+  `.agent/runtime-evidence-v12.26-web.json`.
+- Physical long recording, native STT, assistive-technology/largest-text QA,
+  destination-app receipt, and beta telemetry remain unproven.
 
 ## v12.25 bounded library jobs and sequential backup recovery (2026-07-17)
 

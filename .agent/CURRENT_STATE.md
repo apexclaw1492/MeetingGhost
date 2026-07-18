@@ -1,5 +1,5 @@
 # Current Architectural State
-**Last Updated:** MeetingGhost Gold v12.25 (2026-07-17)
+**Last Updated:** MeetingGhost Gold v12.26 (2026-07-17)
 
 ## Release verdict
 
@@ -7,13 +7,14 @@
 source has strong save-first recovery, transcript persistence, export, summary,
 search, and touch/readability improvements. A physical iPhone passed a
 continuous 15-minute Release run, but an earlier 60-minute locked/offline run
-failed after its first WebView-owned segment. v12.25 retains the native
+failed after its first WebView-owned segment. v12.26 retains the native
 replacement for that failed layer with native iOS/Android capture and 15-second
 atomic commits, but it has not yet
 been installed and rerun through the lock, 60-minute, and two-hour gates. No
-current physical Android evidence exists. The 2026-07-17T13:42:46Z device audit
-found the paired iPhone and iPad `unavailable` in CoreDevice; no Android device
-or `adb` executable was available.
+current physical Android evidence exists. The 2026-07-18T04:41:23Z device audit
+timed out waiting for CoreDeviceService to initialize; `adb` is still absent.
+Although Xcode lists David’s iPhone XIV as a possible build destination, that
+is not install or runtime proof.
 
 Keep the React/Capacitor product and UI. The production capture correction is
 now implemented; the remaining release blocker is physical qualification.
@@ -22,6 +23,35 @@ bounded Whisper compatibility fallback when the system service/model cannot
 prove file-audio support. Native iOS/Android streamed imports and bounded
 one-minute processing are implemented but not device-qualified. See
 `.agent/RELIABILITY_OPTIONS.md` for the evidence and release gates.
+
+## v12.26 visible recovery and accessible release flow
+
+- Meeting deletion is now loss-safe: metadata remains in History until audio,
+  transcript, and semantic artifacts all report successful deletion. A stalled
+  or partial storage failure ends visibly and Retry remains available; active
+  recording/transcription cannot be deleted underneath the job.
+- Diagnostics export has a visible busy/result state and a 60-second whole-job
+  deadline. Clipboard failure is visible, and the eight-stage Meeting
+  Intelligence check has a 15-minute whole-job safety boundary.
+- First launch no longer starts optional Whisper/Gemma downloads. The app
+  explains that models are opt-in, and recording, deterministic private
+  summaries, and full-text search remain available without them.
+- The starter Vite theme and external Google Fonts request are removed. The app
+  now uses system fonts/text scaling, explicit keyboard focus, reduced-motion
+  and forced-colors support, 48px coarse-pointer targets, modal/current-page/
+  form/progress/live-region semantics, and clearer setup/failure language.
+- 87/87 tests, production web build/lint, both Capacitor syncs, the unsigned
+  iOS Simulator build, and Android unit/assemble/lint pass (371 tasks). The
+  rendered 390px flow has no horizontal overflow, current navigation is
+  announced, critical inputs are named, keyboard focus has a 3px visible
+  outline, diagnostics exports visibly, and all eight synthetic integrity
+  stages pass without browser warnings/errors. Evidence:
+  `.agent/build-evidence-v12.26.json` and
+  `.agent/runtime-evidence-v12.26-web.json`.
+- Physical locked 60-/120-minute capture, native saved-audio STT,
+  interruption/memory-pressure delivery, destination-app receipt, largest
+  system text, VoiceOver/TalkBack, and beta-user success rates remain release
+  blockers. Browser/build proof does not close them.
 
 ## v12.25 bounded library operations and sequential backup recovery
 

@@ -1,6 +1,6 @@
 # MeetingGhost Gold — Reliability Roadmap
 
-**Updated:** 2026-07-17 · **Current source:** v12.25 · **Release state:** not yet
+**Updated:** 2026-07-17 · **Current source:** v12.26 · **Release state:** not yet
 qualified for locked, hours-long mobile recording.
 
 ## ✅ Completed (v1.0 - v9.0)
@@ -16,7 +16,7 @@ qualified for locked, hours-long mobile recording.
 - **v8.0 (Integrations & Sharing):** GitHub Issues export (one issue per meeting with task-list), .ics calendar follow-ups, email drafts, structured PDF/MD exports.
 - **v9.0 (Playback & Polish):** Recordings persisted to IndexedDB with 0.5–2.5x playback player, README + docs refresh.
 
-## ✅ Completed in source/build validation (v10.0–v12.25)
+## ✅ Completed in source/build validation (v10.0–v12.26)
 
 - **v10 save-first recording:** verified one-minute segments, recovery state
   machine, resumable checkpointed transcription, playback, diagnostics, and
@@ -171,10 +171,18 @@ qualified for locked, hours-long mobile recording.
   loss-safe Retry. All 79 tests, native build gates, a rendered 400-meeting
   search/Ask/cancel/retry workflow, large archive round-trip, and eight-stage
   integrity check pass.
+- **v12.26 visible recovery and accessible flow:** destructive meeting deletion
+  retains metadata until every artifact deletion succeeds; clipboard,
+  diagnostics, and integrity work terminate visibly; first launch never starts
+  optional model downloads; external fonts/starter CSS are removed; focus,
+  reduced motion, forced colors, 48px coarse targets, and modal/navigation/form/
+  progress/live semantics are explicit. All 87 tests, web build/lint, native
+  sync/build gates, rendered 390px workflow, diagnostics export, and the
+  eight-stage integrity check pass without browser warnings/errors.
 
 ## Phase 1 — decisive native-capture qualification (P0)
 
-1. Install the v12.25 native recorder build on physical iOS and Android devices.
+1. Install the v12.26 native recorder build on physical iOS and Android devices.
 2. Verify every 15-second committed file is playable and that a killed
    `.partial` tail never enters the recovery manifest.
 3. Pass physical screen lock and 10× background/foreground tests first.
@@ -183,7 +191,7 @@ qualified for locked, hours-long mobile recording.
 
 ## Phase 2 — qualify native Android transcription (P0)
 
-Qualify the v12.25 support-checked file-audio engine on a lower-memory Android
+Qualify the v12.26 support-checked file-audio engine on a lower-memory Android
 device and a current flagship, including installed/missing language assets,
 airplane mode, cancellation, process death, 30-minute/two-hour imports, and
 proof that saved audio—not the microphone—is transcribed. Decide from those
@@ -193,13 +201,14 @@ native path.
 
 ## Phase 3 — release hardening (P1)
 
-- Physically qualify v12.25 native streamed import/direct playback, recovery,
+- Physically qualify v12.26 native streamed import/direct playback, recovery,
   and one-minute transcription
   units with 30-minute/two-hour files on both mobile platforms. Web remains a
   browser-controlled compatibility path.
 - Add nightly physical-device soak tests and fault injection for write failure,
   process death, route changes, full disk, and interrupted transcription.
-- Complete VoiceOver/TalkBack, large-text, Display Zoom, and small-screen QA.
+- Complete VoiceOver/TalkBack, largest Dynamic Type/font scaling, Display Zoom,
+  and small-screen QA using the v12.26 accessibility contract as the baseline.
 - Verify Markdown/PDF/share/backup workflows in real target applications.
 - Publish supported device/OS limits and privacy disclosures from measured data.
 

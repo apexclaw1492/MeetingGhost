@@ -1,13 +1,16 @@
 # Product Requirements Document (PRD)
 **Project:** MeetingGhost Gold
 **Vision:** A premium, hyper-secure meeting transcription and summarization hub that runs 100% locally on-device. No cloud APIs, no subscriptions, total privacy.
-**Current baseline:** v12.25 (2026-07-17). Optional BYO-key cloud refinement
+**Current baseline:** v12.26 (2026-07-17). Optional BYO-key cloud refinement
 exists, but every core recording, transcript, summary, search, playback, and
 export path must remain useful without it.
 
 ## Core Value Proposition
 - **Total Privacy:** Audio is processed directly on the user's hardware.
-- **Ultra-Light Initial Install:** The core app is ~3MB. Heavy AI models are downloaded post-installation as needed.
+- **Lean Local-First Install:** Optional AI model weights are excluded from the
+  initial install and download only after the user explicitly chooses them. Do
+  not publish a fixed bundle-size claim without measuring the signed store
+  artifact for that release.
 - **Premium Aesthetic:** Designed with a brushed gold and obsidian black theme, targeting a luxurious, professional user experience (similar to premium fintech apps).
 
 ## Target Platforms
@@ -124,9 +127,20 @@ export path must remain useful without it.
 - **Readability:** Core touch targets are at least 44×44pt/dp; mobile inputs are
   at least 16px; content/status text is at least 15px; navigation/action labels
   are at least 12px; primary icons are 19–22px and paired with text when their
-  meaning is not universal.
+  meaning is not universal. Coarse-pointer targets are at least 48px, system
+  text scaling remains enabled, and the layout must survive the largest system
+  text setting without hiding the primary task or creating horizontal scroll.
 - **Flow:** First launch explains Record → Save/Transcribe → Review → Share in
-  plain language. Optional models and integrations cannot block basic use.
+  plain language. Optional models and integrations cannot block basic use or
+  download without a separate user choice.
+- **Accessibility:** First launch is a named modal with managed focus; primary
+  navigation exposes the current page; every critical form control has an
+  accessible name; progress, success, recording, and failure states are
+  announced; keyboard focus is always visible; reduced-motion and forced-color
+  preferences are honored.
+- **Failure safety:** Destructive actions retain user-visible metadata until
+  artifact deletion succeeds. Clipboard, diagnostics, integrity, processing,
+  and export failures must terminate visibly with a safe Retry or next action.
 
 ## AI Model Constraints
 - **Resource Management:** Loading 250MB+ models in a mobile Safari tab requires careful memory management. Use Web Workers exclusively to prevent main thread freezing.

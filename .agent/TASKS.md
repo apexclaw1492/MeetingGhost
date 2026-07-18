@@ -1,4 +1,4 @@
-# Reliability Delivery Backlog — v12.25
+# Reliability Delivery Backlog — v12.26
 
 **Status labels:** implemented means source exists; build-verified means it
 compiled/tested; device-qualified means it passed the named physical matrix.
@@ -7,10 +7,10 @@ Only device-qualified work can close a mobile reliability requirement.
 ## P0 — release blockers
 
 - [x] **Replace WebView microphone capture with native segmented capture.**
-  v12.25 uses iOS AVAudioRecorder and Android foreground-service MediaRecorder,
+  v12.26 uses iOS AVAudioRecorder and Android foreground-service MediaRecorder,
   15-second atomic commits, app-private files, native events, and orphan-session
   recovery. Build-verified only; the qualification tasks below remain open.
-- [ ] **Qualify v12.25 on a physical iPhone.** Fresh signed install, 30s,
+- [ ] **Qualify v12.26 on a physical iPhone.** Fresh signed install, 30s,
   screen-lock, background/foreground ×10, 15m, 60m, 2h, call/Siri, Bluetooth,
   restart, low storage, permission denial, kill/recovery, playback, memory.
   Current paired iPhone runs iOS 26.5.2; Xcode 26.3 cannot mount its developer
@@ -31,7 +31,7 @@ Only device-qualified work can close a mobile reliability requirement.
 - [x] **Shorten source-level worst-case tail exposure.** Native recorders target
   15-second segments and publish only an atomically renamed, byte-verified file;
   a killed `.partial` file is ignored. Physical proof remains required.
-- [x] **Add release telemetry/diagnostic assertions.** v12.25 exports content-free
+- [x] **Add release telemetry/diagnostic assertions.** v12.26 exports content-free
   assertions for exact manifests, durable checkpoint prefixes/bounds, retained
   audio, completed transcript/summary outcomes, and nonterminal states. Native
   session snapshots, route/interruption changes, finalized file size/duration,
@@ -41,10 +41,16 @@ Only device-qualified work can close a mobile reliability requirement.
   text/no-speech outcomes, character/byte counts, and a versioned whole-body
   checksum; every hydration consumer fails closed on truncation/corruption,
   legacy archives migrate safely, and backup repair re-verifies before compaction.
+- [x] **Make destructive deletion loss-safe and observable.** v12.26 keeps the
+  meeting visible until audio, transcript, and vector deletion all succeed;
+  partial/stalled deletion ends visibly and remains retryable.
+- [x] **Bound support operations.** Diagnostics export has a 60-second whole-job
+  deadline and visible busy/failure/success states; the integrity check has a
+  15-minute boundary; clipboard failure is visible.
 
 ## P1 — hours-scale completeness
 
-- [ ] Physically qualify v12.25 native streamed copy, direct playback, import
+- [ ] Physically qualify v12.26 native streamed copy, direct playback, import
   completion recovery, and one-minute processing
   with 30-minute and two-hour imports on iOS and Android. Both native picker
   boundaries are implemented; Apple Speech and MediaCodec execution remain
@@ -52,13 +58,14 @@ Only device-qualified work can close a mobile reliability requirement.
 - [ ] Add automated native interruption/route/service tests where the platform
   permits them, plus nightly two-hour soak runs on real devices.
 - [ ] Run accessibility QA at default and largest Dynamic Type/font scaling,
-  VoiceOver/TalkBack, Display Zoom, and 320–430pt widths.
+  VoiceOver/TalkBack, Display Zoom, and 320–430pt widths. v12.26 source/browser
+  contracts pass; assistive-technology and physical-device evidence is pending.
 - [ ] Run an end-to-end export matrix: Markdown share to Notes/Mail/Files,
   multi-page PDF, backup/restore, and source-app summary handoff.
 - [ ] Define supported device/OS floor from measured transcription time and
   peak memory rather than from compile compatibility alone.
 
-## Source and native build verified through v12.25
+## Source and native build verified through v12.26
 
 - [x] Save-first 60-second verified segments and exact segment manifests.
 - [x] Idempotent stop, in-flight rotation wait, storage warning/auto-stop.
@@ -70,6 +77,9 @@ Only device-qualified work can close a mobile reliability requirement.
 - [x] IndexedDB v2 large-transcript archival with exact read-back verification,
   durable expected lengths/checksum, corruption rejection, and legacy migration.
 - [x] Larger readable mobile text/icons and 44–60px core touch targets.
+- [x] System fonts/text scaling, 48px coarse-pointer targets, visible keyboard
+  focus, reduced motion/forced colors, and named modal/navigation/forms/progress/
+  status semantics; optional model downloads require an explicit choice.
 - [x] Request-correlated transcription/chat/summary/title worker responses.
 - [x] Sparse-checkpoint rewind and complete-segment assembly assertion.
 - [x] Hydration-first lexical search fallback when semantic retrieval fails.

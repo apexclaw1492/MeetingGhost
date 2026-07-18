@@ -1,4 +1,4 @@
-# Reliability Architecture Options — v12.25
+# Reliability Architecture Options — v12.26
 
 **Decision date:** 2026-07-17
 
@@ -100,11 +100,17 @@
   legacy migration, and restore archive sequentially; backup work has progress,
   Cancel, a 15-minute boundary, and loss-safe Retry. All 79 tests, native build
   gates, and a rendered 400-meeting cancel/retry workflow pass.
+- v12.26 closes the current known support-operation and accessibility contract
+  gaps: loss-safe deletion, bounded visible diagnostics/integrity/clipboard
+  failures, opt-in model downloads, local system fonts, visible focus, reduced
+  motion, 48px coarse targets, and named modal/navigation/form/progress/live
+  semantics. All 87 tests and native build gates pass; rendered mobile-width
+  diagnostics and all eight integrity stages pass without browser issues.
 
 The app therefore has a strong durable data pipeline, but it is not yet an
 hours-long mobile recorder with release-grade evidence.
 
-## Three practical paths from v12.25
+## Three practical paths from v12.26
 
 1. **Qualify the current local-first stack (recommended first).** Keep native
    segmented capture, Apple Speech, support-checked Android system speech, and
@@ -121,7 +127,7 @@ hours-long mobile recorder with release-grade evidence.
 
 ## Option A — retain WebView capture on web only
 
-Keep `MediaRecorder` only for the PWA/web target. v12.25 no longer selects this
+Keep `MediaRecorder` only for the PWA/web target. v12.26 no longer selects this
 path for production iOS/Android recording.
 
 - **Advantages:** keeps the browser target dependency-free and uses broadly
@@ -151,12 +157,12 @@ needed for locked multi-hour sessions.
 native test harnesses, and careful interruption/route handling.
 
 This is the recommended production architecture and is now implemented in
-v12.25 source/build. It remains a release blocker until the physical matrix
+v12.26 source/build. It remains a release blocker until the physical matrix
 proves it.
 
 ## Option C — Option B plus native transcription on both platforms
 
-Use native capture, Apple Speech on iOS, and the v12.25 support-checked Android
+Use native capture, Apple Speech on iOS, and the v12.26 support-checked Android
 13+ on-device SpeechRecognizer for saved audio. Keep inference segment-by-
 segment with the current checkpoint/retry protocol. If the qualified device
 matrix shows unacceptable service/model coverage, replace the compatibility
@@ -194,14 +200,14 @@ Do not choose this solely for recording reliability.
 
 ## Recommended sequence and release gates
 
-1. Preserve v12.25 and install a fresh signed build on both target platforms.
+1. Preserve v12.26 and install a fresh signed build on both target platforms.
 2. Qualify the implemented Option B path: 15-second native segments, atomic
    partial-to-final commits, and native session recovery.
 3. Pass iOS: lock, background ×10, 15m, 60m, 2h, interruption/route, restart,
    low storage, kill recovery, playback, export, and memory.
 4. Qualify native Android STT (Option C) and its fallback on a lower-memory
    device and a current flagship; require microphone-denied saved-file proof.
-5. Qualify v12.25’s iOS/Android native streamed import, direct playback, import
+5. Qualify v12.26’s iOS/Android native streamed import, direct playback, import
    recovery, and one-minute processing
    with 30-minute/two-hour files. Keep the v12.6+ inference checkpoints.
 6. Ship only when finalized audio has zero observed loss across the matrix,

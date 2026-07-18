@@ -49,9 +49,10 @@ import { recordingStartupRecovery } from './utils/recordingStartupRecovery';
 import { acquireMicrophoneStream } from './utils/microphone';
 import { ModelInitWatchdog } from './utils/modelInitWatchdog';
 import type { ModelInitKind, ModelInitLimits, ModelInitTimeoutReason } from './utils/modelInitWatchdog';
+import { deleteMeetingArtifacts } from './utils/deletionSafety';
 import './App.css';
 
-export const APP_VERSION = 'v12.25';
+export const APP_VERSION = 'v12.26';
 
 const SEMANTIC_INDEX_JOB_MAX_MS = 15 * 60_000;
 const LIBRARY_SCAN_MAX_MS = 5 * 60_000;
@@ -192,6 +193,8 @@ export function App() {
   const [transcriptLoadingIds, setTranscriptLoadingIds] = useState<Set<string>>(new Set());
   const [backupBusy, setBackupBusy] = useState<'export' | 'import' | null>(null);
   const [backupProgress, setBackupProgress] = useState('');
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [folders, setFolders] = useState<Folder[]>([]);
   const [activeFolder, setActiveFolder] = useState<string>('all');
   const [settings, setSettings] = useState<Settings>(() => store.loadSettings());
@@ -210,8 +213,13 @@ export function App() {
   const timerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
+  const onboardingButtonRef = useRef<HTMLButtonElement | null>(null);
   const settingsRef = useRef<Settings>(settings);
   useEffect(() => { settingsRef.current = settings; store.saveSettings(settings); }, [settings]);
+
+  useEffect(() => {
+    if (!hasOnboarded) onboardingButtonRef.current?.focus();
+  }, [hasOnboarded]);
 
   useEffect(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -1615,7 +1623,7 @@ export function App() {
             status: done?.status || 'missing', segments: done?.segments, bytes: done?.bytes, dur: done?.dur,
             ms: Math.round(performance.now() - t0),
           });
-          remove(st.activeMeetingId);
+          await remove(st.activeMeetingId);
           const live = loadSelfTest();
           if (!live?.running || live.startedAt !== st.startedAt) { st.running = false; return; }
           st = { ...st, cycle: st.cycle + 1, activeMeetingId: undefined };
@@ -1654,7 +1662,7 @@ export function App() {
           ms: Math.round(performance.now() - t0),
         });
         dlog('selftest.cycle', { ...st.results[st.results.length - 1] });
-        if (id) remove(id); // keep the device clean across 25 runs
+        if (id) await remove(id); // keep the device clean across 25 runs
         // Check cancellation/replacement BEFORE persisting. Otherwise the
         // stale local state can overwrite a Stop request or newer run.
         const live = loadSelfTest();
@@ -1694,7 +1702,11 @@ export function App() {
     setIntegrityBusy(true);
     setError('');
     try {
-      const result = await runIntelligenceIntegrityCheck();
+      const result = await withTimeout(
+        runIntelligenceIntegrityCheck(),
+        15 * 60_000,
+        'The integrity check reached its 15-minute safety limit. Synthetic test data will be cleaned up on the next run; your saved meetings were not changed.',
+      );
       setIntegrityResult(result);
       if (!result.passed) setError('Meeting intelligence integrity check failed. The failed step is shown in Diagnostics; saved user meetings were not changed.');
     } catch (integrityError) {
@@ -2028,19 +2040,49 @@ export function App() {
     setTimeout(() => setNotice(''), 3000);
   };
 
-  const remove = (id: string, requireConfirmation = false) => {
+  const remove = async (id: string, requireConfirmation = false) => {
     const meeting = meetingsRef.current.find(m => m.id === id);
     if (requireConfirmation && !window.confirm(`Delete “${meeting?.title || 'this meeting'}”?\n\nThis permanently removes its recording, transcript, summary, and search index.`)) return;
-    const u = meetingsRef.current.filter(m => m.id !== id);
-    persistMeetingList(u);
-    deleteMeetingVectors(id)
-      .then(() => indexedMeetingIds(meetingsRef.current))
-      .then(ids => setIndexedCount(ids.size))
-      .catch(() => { /* noop */ });
-    deleteMeetingAudio(id)
-      .then(() => setAudioIds(prev => { const n = new Set(prev); n.delete(id); return n; }))
-      .catch(() => { /* noop */ });
-    deleteMeetingContent(id).catch(() => { /* noop */ });
+    if (currentMeetingRef.current?.id === id && recording) {
+      setError('Stop the active recording before deleting it so every completed audio segment can be finalized safely.');
+      return;
+    }
+    if (transcribingIdRef.current === id) {
+      setError('Pause or cancel this transcription before deleting the meeting. Saved audio and completed checkpoints remain intact.');
+      return;
+    }
+    if (deletingIds.has(id)) return;
+    setDeletingIds(current => new Set(current).add(id));
+    setError('');
+    try {
+      await deleteMeetingArtifacts({
+        deleteAudio: () => deleteMeetingAudio(id),
+        deleteTranscript: () => deleteMeetingContent(id),
+        deleteSearchIndex: () => deleteMeetingVectors(id),
+      });
+      persistMeetingList(meetingsRef.current.filter(m => m.id !== id));
+      setAudioIds(previous => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+      const ids = await indexedMeetingIds(meetingsRef.current).catch(() => new Set<string>());
+      setIndexedCount(ids.size);
+      if (requireConfirmation) {
+        setNotice('Meeting deleted from this device.');
+        setTimeout(() => setNotice(''), 4000);
+      }
+    } catch (deletionError) {
+      const message = deletionError instanceof Error ? deletionError.message : String(deletionError);
+      setError(`Deletion did not finish: ${message} The meeting remains visible so you can retry; no failure was hidden.`);
+      dlogError('meeting.delete.fail', deletionError, { id });
+    } finally {
+      setDeletingIds(current => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
   };
 
   /* ─── Folders ─── */
@@ -2055,6 +2097,8 @@ export function App() {
   };
 
   const deleteFolder = (id: string) => {
+    const folder = folders.find(item => item.id === id);
+    if (!window.confirm(`Remove the folder “${folder?.name || 'this folder'}”?\n\nMeetings will stay saved and move to All Meetings.`)) return;
     setFolders(prev => {
       const u = prev.filter(f => f.id !== id);
       store.saveFolders(u);
@@ -2187,9 +2231,8 @@ export function App() {
   const handleOnboarding = () => {
     setHasOnboarded(true);
     localStorage.setItem('mg_onb', '1');
-    // iOS transcribes with the built-in Apple engine — no Whisper download
-    if (Capacitor.getPlatform() !== 'ios') dl('whisper');
-    if (hasWebGPU) dl('gemma');
+    setNotice('You’re ready. Optional model downloads stay off until you choose them in AI Models.');
+    setTimeout(() => setNotice(''), 6000);
   };
 
   /* Audio Visualizer Loop — three gold themes: bars, wave, circle */
@@ -2373,7 +2416,7 @@ export function App() {
         });
         const recovery = recordingStartupRecovery(id, stopped, manifests, message);
         if (recovery.kind === 'empty') {
-          remove(id);
+          await remove(id);
           setError('Recording could not start within 30 seconds. No audio was captured; check microphone access and try again.');
         } else {
           updateMeeting(id, recovery.patch);
@@ -2385,7 +2428,7 @@ export function App() {
           }
         }
       } else {
-        remove(id); // native/web start returned a terminal failure before capture
+        await remove(id); // native/web start returned a terminal failure before capture
         setError(useNativeCapture && /permission|denied/i.test(message)
           ? 'Microphone access denied. Open Settings → MeetingGhost → enable Microphone, then return here and try again.'
           : message);
@@ -2577,7 +2620,7 @@ export function App() {
       currentMeetingRef.current = null;
       const canceled = /canceled|cancelled|IMPORT_CANCELED/i.test(message);
       if (canceled) {
-        remove(id);
+        await remove(id);
         setProcessing(false);
         setProcStatus('');
       } else {
@@ -2596,7 +2639,7 @@ export function App() {
             setError('The import response was interrupted, but the complete verified audio file was recovered. Use playback to check it, then tap Transcribe Audio.');
             dlog('import.native.recovered', { id, segments: recovered.segments, bytes: recovered.bytes });
           } else {
-            remove(id);
+            await remove(id);
             setError(message);
           }
         } catch (scanError) {
@@ -2643,7 +2686,38 @@ export function App() {
   const fmt = formatDuration;
 
   const clip = async (t: string) => {
-    try { await navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* */ }
+    try {
+      await withTimeout(navigator.clipboard.writeText(t), 10_000, 'Copying the transcript timed out.');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (copyError) {
+      setError(`Copy failed: ${copyError instanceof Error ? copyError.message : String(copyError)} Use Export to save the complete transcript instead.`);
+      dlogError('export.clipboard.fail', copyError);
+    }
+  };
+
+  const downloadDiagnostics = async () => {
+    if (diagnosticsBusy) return;
+    setDiagnosticsBusy(true);
+    setError('');
+    try {
+      const json = await withTimeout(
+        exportDiagnostics(APP_VERSION),
+        60_000,
+        'Diagnostics collection reached its one-minute safety limit.',
+      );
+      downloadBlob(
+        new Blob([json], { type: 'application/json' }),
+        `MeetingGhost-diagnostics-${new Date().toISOString().slice(0, 19).replace(/[:]/g, '-')}.json`,
+      );
+      setNotice('Privacy-safe diagnostics exported. Meeting titles and content were excluded.');
+      setTimeout(() => setNotice(''), 5000);
+    } catch (diagnosticError) {
+      setError(`Diagnostics export stopped: ${diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)} Retry after reopening the app if the device remains busy.`);
+      dlogError('diagnostics.export.fail', diagnosticError);
+    } finally {
+      setDiagnosticsBusy(false);
+    }
   };
 
   const shareWasCanceled = (error: unknown) => /cancel|dismiss|abort/i.test(error instanceof Error ? error.message : String(error));
@@ -2863,6 +2937,9 @@ export function App() {
   };
 
   const indexableCount = indexableMeetingCount(meetings);
+  const transcriptionSetupNeeded = !whisper.done && (
+    !Capacitor.isNativePlatform() || nativeSTT?.available === false
+  );
   const normalizedHistoryQuery = searchQuery.trim().toLowerCase();
   const filteredMeetings = meetings.filter(m =>
     (activeFolder === 'all' || m.folderId === activeFolder) &&
@@ -2874,17 +2951,29 @@ export function App() {
   return (
     <div className="app-shell">
       {!hasOnboarded && (
-        <div className="onboarding-overlay">
+        <div
+          className="onboarding-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="onboarding-title"
+          aria-describedby="onboarding-description"
+          onKeyDown={event => {
+            if (event.key === 'Tab') {
+              event.preventDefault();
+              onboardingButtonRef.current?.focus();
+            }
+          }}
+        >
           <div className="onboarding-modal">
-            <div className="onboarding-mark"><ShieldCheck /></div>
-            <h2>Your meetings, safely captured</h2>
-            <p>Record for hours, recover safely after interruptions, and get a transcript and practical summary. Core recording, summaries, and search work locally; optional AI models can improve results later.</p>
+            <div className="onboarding-mark" aria-hidden="true"><ShieldCheck /></div>
+            <h2 id="onboarding-title">Your meetings, safely captured</h2>
+            <p id="onboarding-description">Record conversations with automatic save checkpoints, then create a transcript and practical private summary. Optional model downloads only start when you choose them.</p>
             <div className="onboarding-points">
               <span><Mic /> Record with automatic save checkpoints</span>
               <span><Brain /> Transcribe and summarize on your device</span>
               <span><Search /> Search every saved conversation</span>
             </div>
-            <button className="btn-primary" onClick={handleOnboarding}>
+            <button ref={onboardingButtonRef} className="btn-primary" onClick={handleOnboarding}>
               <ShieldCheck /> Get Started Privately
             </button>
           </div>
@@ -2906,28 +2995,28 @@ export function App() {
             <p className="brand-tagline"><ShieldCheck />Private On-Device Voice Intelligence</p>
           </div>
         </div>
-        <nav className="nav-tabs">
-          <button className={`nav-tab${tab === 'studio' ? ' active' : ''}`} onClick={() => setTab('studio')}>
+        <nav className="nav-tabs" aria-label="Primary navigation">
+          <button aria-current={tab === 'studio' ? 'page' : undefined} className={`nav-tab${tab === 'studio' ? ' active' : ''}`} onClick={() => setTab('studio')}>
             <Mic />Studio
           </button>
-          <button className={`nav-tab${tab === 'history' ? ' active' : ''}`} onClick={() => setTab('history')}>
+          <button aria-current={tab === 'history' ? 'page' : undefined} className={`nav-tab${tab === 'history' ? ' active' : ''}`} onClick={() => setTab('history')}>
             <Clock />History{meetings.length > 0 && ` (${meetings.length})`}
           </button>
-          <button className={`nav-tab${tab === 'ask' ? ' active' : ''}`} onClick={() => setTab('ask')}>
+          <button aria-current={tab === 'ask' ? 'page' : undefined} className={`nav-tab${tab === 'ask' ? ' active' : ''}`} onClick={() => setTab('ask')}>
             <MessageSquare />Ask
           </button>
-          <button className={`nav-tab${tab === 'models' ? ' active' : ''}`} onClick={() => setTab('models')}>
+          <button aria-current={tab === 'models' ? 'page' : undefined} className={`nav-tab${tab === 'models' ? ' active' : ''}`} onClick={() => setTab('models')}>
             <Zap />AI Models
           </button>
-          <button className={`nav-tab${tab === 'settings' ? ' active' : ''}`} onClick={() => setTab('settings')}>
+          <button aria-current={tab === 'settings' ? 'page' : undefined} className={`nav-tab${tab === 'settings' ? ' active' : ''}`} onClick={() => setTab('settings')}>
             <SettingsIcon />Settings
           </button>
         </nav>
       </header>
 
       <main className="main">
-        {notice && <div className="notice-banner">{notice}</div>}
-        {error && tab !== 'studio' && <div className="error-banner" style={{ maxWidth: 'none' }}>{error}</div>}
+        {notice && <div className="notice-banner" role="status" aria-live="polite">{notice}</div>}
+        {error && tab !== 'studio' && <div className="error-banner" role="alert" style={{ maxWidth: 'none' }}>{error}</div>}
 
         {/* ═══ HERO CARD ═══ */}
         {tab === 'studio' && <section className="hero">
@@ -2935,15 +3024,15 @@ export function App() {
           <div className="hero-shimmer" />
           <div className="hero-content">
             <div className="hero-eyebrow"><Sparkles />On-Device Voice Intelligence</div>
-            <h2 className="hero-heading">Intuitive <em>Voice-to-Text</em> with Zero Cloud Dependency</h2>
-            <p className="hero-body">Record conversations, generate instant transcripts, and export to ChatGPT, Claude, or your local AI tool — all processed entirely on your device.</p>
+            <h2 className="hero-heading">Private <em>meeting intelligence</em>, ready when you are</h2>
+            <p className="hero-body">Record conversations, create complete transcripts and summaries, then share them with the app you choose. Core processing stays on your device; optional cloud refinement is off by default.</p>
           </div>
           <div className="hero-aside">
             <div className="stat-card">
               <div className="stat-icon"><HardDrive /></div>
               <div>
-                <div className="stat-label">Initial App Bundle</div>
-                <div className="stat-value">Ultra-Light ~3 MB</div>
+                <div className="stat-label">Privacy Default</div>
+                <div className="stat-value">Local-first, no account required</div>
               </div>
             </div>
             <div className="platform-pill">
@@ -2974,10 +3063,20 @@ export function App() {
                 )}
               </div>
 
+              {!recording && transcriptionSetupNeeded && (
+                <div className="transcription-setup-card" role="note">
+                  <div>
+                    <strong>Recording is ready; transcription needs one optional setup step</strong>
+                    <p>Audio saves first even without the model. Download private voice-to-text now, or do it later from AI Models.</p>
+                  </div>
+                  <button className="btn-ghost" onClick={() => setTab('models')}><Download />Set Up Transcription</button>
+                </div>
+              )}
+
               {recording && (
-                <div className="rec-chip" style={{ margin: '0 auto 16px auto' }}>
-                  <div className="rec-dot" />
-                  <span className="rec-label">REC {fmt(time)}</span>
+                <div className="rec-chip" role="status" aria-label="Recording in progress" style={{ margin: '0 auto 16px auto' }}>
+                  <div className="rec-dot" aria-hidden="true" />
+                  <span className="rec-label" aria-hidden="true">REC {fmt(time)}</span>
                 </div>
               )}
 
@@ -3007,7 +3106,7 @@ export function App() {
                 </div>
               )}
               {processing && (
-                <div className="processing-chip">
+                <div className="processing-chip" role="status" aria-live="polite">
                   <Loader2 className="spin" />
                   <span>{procStatus || 'Processing on-device…'}</span>
                   {transcribingIdRef.current && (
@@ -3019,9 +3118,9 @@ export function App() {
                 </div>
               )}
               {savedFlash && (
-                <div className="saved-banner"><CheckCircle2 />{savedFlash}</div>
+                <div className="saved-banner" role="status" aria-live="polite"><CheckCircle2 />{savedFlash}</div>
               )}
-              {error && <div className="error-banner">{error}</div>}
+              {error && <div className="error-banner" role="alert">{error}</div>}
             </div>
 
             {/* Transcript + Summary */}
@@ -3114,7 +3213,7 @@ export function App() {
                   <button className="folder-chip-label" onClick={() => setActiveFolder(f.id)}>
                     <FolderIcon />{f.name} ({meetings.filter(m => m.folderId === f.id).length})
                   </button>
-                  <button className="folder-chip-x" onClick={() => deleteFolder(f.id)} title={`Delete folder "${f.name}"`}>
+                  <button className="folder-chip-x" onClick={() => deleteFolder(f.id)} title={`Delete folder "${f.name}"`} aria-label={`Remove folder ${f.name}; meetings will stay saved`}>
                     <X />
                   </button>
                 </span>
@@ -3131,6 +3230,7 @@ export function App() {
                   className="search-input"
                   placeholder="Search meetings by title or transcript..."
                   value={searchQuery}
+                  aria-label="Search saved meetings by title or transcript"
                   aria-busy={historySearchState === 'loading'}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -3202,6 +3302,7 @@ export function App() {
                             value={m.folderId || ''}
                             onChange={(e) => moveToFolder(m.id, e.target.value)}
                             title="Move to folder"
+                            aria-label={`Move ${m.title || 'meeting'} to a folder`}
                           >
                             <option value="">No folder</option>
                             {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -3213,7 +3314,16 @@ export function App() {
                         <button className="btn-sq" data-label="Calendar" onClick={() => downloadICS(m)} title="Add Follow-up to Calendar (.ics)" aria-label="Add a calendar follow-up"><CalendarPlus /></button>
                         <button className="btn-sq" data-label="Email" onClick={() => emailDraft(m)} title="Draft Email" aria-label="Draft a meeting email"><Mail /></button>
                         <button className="btn-sq" data-label="Share" onClick={() => shareMeeting(m)} title="Send Meeting to Another App" aria-label="Send meeting to another app"><Share2 /></button>
-                        <button className="btn-sq del" data-label="Delete" onClick={() => remove(m.id, true)} title="Delete" aria-label="Delete meeting"><Trash2 /></button>
+                        <button
+                          className="btn-sq del"
+                          data-label="Delete"
+                          onClick={() => void remove(m.id, true)}
+                          title="Delete"
+                          aria-label={`Delete ${m.title || 'meeting'}`}
+                          disabled={deletingIds.has(m.id)}
+                        >
+                          {deletingIds.has(m.id) ? <Loader2 className="spin" /> : <Trash2 />}
+                        </button>
                       </div>
                     </div>
                     {m.transcript ? (
@@ -3295,7 +3405,9 @@ export function App() {
                 {embedder.loading ? (
                   <div className="progress-wrap" style={{ marginTop: 10 }}>
                     <div className="progress-top"><span>Preparing semantic search…</span><span>{embedder.progress}%</span></div>
-                    <div className="progress-track"><div className="progress-bar" style={{ width: `${embedder.progress}%` }} /></div>
+                    <div className="progress-track" role="progressbar" aria-label="Preparing semantic search" aria-valuemin={0} aria-valuemax={100} aria-valuenow={embedder.progress}>
+                      <div className="progress-bar" style={{ width: `${embedder.progress}%` }} />
+                    </div>
                   </div>
                 ) : (
                   <div className="model-retry">
@@ -3314,6 +3426,8 @@ export function App() {
                     className="search-input"
                     placeholder='e.g. "What did we decide about the marketing budget?"'
                     value={askQuery}
+                    aria-label="Ask a question across saved meetings"
+                    aria-busy={askBusy}
                     onChange={e => setAskQuery(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') ask(); }}
                   />
@@ -3354,7 +3468,7 @@ export function App() {
               <span className="gold-text">AI Model Manager</span>
             </div>
             <p className="ai-intro">
-              Heavy AI engines are downloaded post-installation to keep your initial download ultra-small (~3 MB). Install them on-demand below.
+              Optional AI engines are downloaded only when you choose them. Core recording, private summaries, and full-text search remain available without optional models.
             </p>
             <div className="models-grid">
               {nativeSTT?.available && (
@@ -3400,7 +3514,9 @@ export function App() {
                   ) : m.loading ? (
                     <div className="progress-wrap">
                       <div className="progress-top"><span>Preparing…</span><span>{m.progress}%</span></div>
-                      <div className="progress-track"><div className="progress-bar" style={{ width: `${m.progress}%` }} /></div>
+                      <div className="progress-track" role="progressbar" aria-label={`Preparing ${m.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={m.progress}>
+                        <div className="progress-bar" style={{ width: `${m.progress}%` }} />
+                      </div>
                     </div>
                   ) : (
                     <div className="model-retry">
@@ -3416,7 +3532,7 @@ export function App() {
 
             {embedder.done && indexableCount > 0 && (
               <div className="settings-group" style={{ marginTop: 16 }}>
-                <label className="settings-label"><RefreshCw style={{ width: 14, height: 14 }} /> Semantic Index</label>
+                <h3 className="settings-label"><RefreshCw style={{ width: 14, height: 14 }} /> Semantic Index</h3>
                 <p className="settings-hint">
                   {indexedCount} of {indexableCount} transcribed meetings indexed for "Ask Your Meetings". New recordings index automatically.
                 </p>
@@ -3442,9 +3558,10 @@ export function App() {
             </div>
 
             <div className="settings-group">
-              <label className="settings-label">Summary Template</label>
+              <label className="settings-label" htmlFor="summary-template">Summary Template</label>
               <p className="settings-hint">Shapes what the AI focuses on when summarizing your meetings.</p>
               <select
+                id="summary-template"
                 className="folder-select settings-select"
                 value={settings.template}
                 onChange={e => setSettings(s => ({ ...s, template: e.target.value as Settings['template'] }))}
@@ -3456,7 +3573,7 @@ export function App() {
             </div>
 
             <div className="settings-group">
-              <label className="settings-label"><KeyRound style={{ width: 14, height: 14 }} /> Claude API — Premium Summaries (optional)</label>
+              <label className="settings-label" htmlFor="claude-api-key"><KeyRound style={{ width: 14, height: 14 }} /> Claude API — Premium Summaries (optional)</label>
               <p className="settings-hint">
                 By default everything runs 100% on-device. If you want MeetGeek-quality structured summaries,
                 paste your own Anthropic API key. The transcript is then sent directly from your device to
@@ -3464,6 +3581,7 @@ export function App() {
                 is excluded from backups.
               </p>
               <input
+                id="claude-api-key"
                 type="password"
                 className="search-input"
                 placeholder="sk-ant-..."
@@ -3483,21 +3601,24 @@ export function App() {
             </div>
 
             <div className="settings-group">
-              <label className="settings-label"><CircleDot style={{ width: 14, height: 14 }} /> GitHub Integration (optional)</label>
+              <div className="settings-label"><CircleDot style={{ width: 14, height: 14 }} /> GitHub Integration (optional)</div>
               <p className="settings-hint">
                 Export a meeting's action items as a GitHub issue (one issue per meeting, with a
                 task-list checklist). Needs a fine-grained personal access token with Issues write
                 access. The token stays on this device and is excluded from backups.
               </p>
               <input
+                id="github-repository"
                 type="text"
                 className="search-input"
                 placeholder="owner/repository (e.g. acme/meeting-actions)"
                 value={settings.githubRepo}
                 onChange={e => setSettings(s => ({ ...s, githubRepo: e.target.value.trim() }))}
                 autoComplete="off"
+                aria-label="GitHub repository in owner slash repository format"
               />
               <input
+                id="github-token"
                 type="password"
                 className="search-input"
                 style={{ marginTop: 8 }}
@@ -3505,11 +3626,12 @@ export function App() {
                 value={settings.githubToken}
                 onChange={e => setSettings(s => ({ ...s, githubToken: e.target.value.trim() }))}
                 autoComplete="off"
+                aria-label="GitHub personal access token"
               />
             </div>
 
             <div className="settings-group">
-              <label className="settings-label"><HardDrive style={{ width: 14, height: 14 }} /> Diagnostics</label>
+              <h3 className="settings-label"><HardDrive style={{ width: 14, height: 14 }} /> Diagnostics</h3>
               <p className="settings-hint" data-testid="installed-build">
                 Installed build: <strong>{APP_VERSION}</strong> · {Capacitor.getPlatform()}
               </p>
@@ -3518,18 +3640,13 @@ export function App() {
                 worker status, errors) for troubleshooting. It never contains your audio,
                 transcripts, or meeting titles.
               </p>
-              <button className="btn-download" onClick={async () => {
-                const json = await exportDiagnostics(APP_VERSION);
-                downloadBlob(
-                  new Blob([json], { type: 'application/json' }),
-                  `MeetingGhost-diagnostics-${new Date().toISOString().slice(0, 19).replace(/[:]/g, '-')}.json`,
-                );
-              }}>
-                <Download />Export Diagnostics
+              <button className="btn-download" onClick={() => void downloadDiagnostics()} disabled={diagnosticsBusy}>
+                {diagnosticsBusy ? <Loader2 className="spin" /> : <Download />}
+                {diagnosticsBusy ? 'Collecting Diagnostics…' : 'Export Diagnostics'}
               </button>
 
               <div className="integrity-check">
-                <label className="settings-label"><ShieldCheck />Meeting Intelligence Integrity Check</label>
+                <h3 className="settings-label"><ShieldCheck />Meeting Intelligence Integrity Check</h3>
                 <p className="settings-hint">
                   Uses synthetic two-hour content to verify this device’s real audio storage/decode,
                   metadata-loss recovery, transcript archive/hydration, private summary, cross-meeting
@@ -3560,7 +3677,7 @@ export function App() {
               </div>
 
               <div style={{ marginTop: 18 }}>
-                <label className="settings-label"><RefreshCw style={{ width: 14, height: 14 }} /> Reliability Self-Test</label>
+                <h3 className="settings-label"><RefreshCw style={{ width: 14, height: 14 }} /> Reliability Self-Test</h3>
                 <p className="settings-hint">
                   Runs the full record → save → transcribe pipeline 25 times with synthesized
                   audio (no microphone needed) and verifies every recording is saved and

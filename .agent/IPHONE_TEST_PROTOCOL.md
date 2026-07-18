@@ -1,4 +1,4 @@
-# Mobile Physical-Device Test Protocol (v12.25)
+# Mobile Physical-Device Test Protocol (v12.26)
 
 **Honesty rule:** "Build verified" = it compiled. "Preview verified" = it passed in a
 desktop browser at iPhone dimensions (IndexedDB backend). "Physical-device verified" =
@@ -7,12 +7,12 @@ acceptance criteria. Do not claim reliability beyond the evidence.
 
 ## Install (release-style build)
 
-Current environment note (2026-07-17): the paired iPhone 14 Pro runs iOS 26.5.2
-and the host has Xcode 26.3. The 2026-07-17T13:42:46Z CoreDevice check lists the
-iPhone and paired iPad as `unavailable`; the prior signed destination attempt
-also could not mount the developer disk image. Installation is blocked until
-the phone is connected/unlocked and compatible Xcode device support is present,
-or a compatible iPhone is used. No Android device or `adb` is available.
+Current environment note (2026-07-18T04:41:23Z): Xcode lists David’s iPhone XIV
+as a possible destination, but `devicectl` timed out waiting for
+CoreDeviceService to initialize; the prior signed attempt also could not mount
+the developer disk image. Installation is blocked until CoreDevice/device
+support is healthy and the phone is connected/unlocked, or a compatible iPhone
+is used. No Android device or `adb` is available.
 
 1. Connect the iPhone via USB, unlock it, tap **Trust This Computer**.
 2. In Xcode: open `ios/App/App.xcodeproj`, select the App target →
@@ -25,7 +25,7 @@ or a compatible iPhone is used. No Android device or `adb` is available.
    `npm run build && npx cap sync ios`
    (TestFlight alternative: Product → Archive → Distribute → TestFlight.)
 7. On first launch, open Settings and confirm the displayed app version is
-   **v12.25**. Do not record qualification evidence against a stale installed
+   **v12.26**. Do not record qualification evidence against a stale installed
    bundle.
 8. Run **Meeting Intelligence Integrity Check** and require all eight steps to
    pass, including the production direct-file playback boundary and Metadata-
@@ -40,6 +40,9 @@ or a compatible iPhone is used. No Android device or `adb` is available.
 ## First-launch setup on the phone
 
 - Grant microphone permission when prompted.
+- Completing first launch must not start Whisper, Gemma, or MiniLM downloads.
+  Open AI Models and choose an optional download only when the current platform
+  needs or the tester explicitly wants it.
 - iOS uses built-in Apple Speech and does not require a Whisper download.
 - Android 13+: open AI Models and confirm whether **On-device Speech** is ready.
   If the system model/file-audio capability is unavailable, download **Whisper
@@ -125,6 +128,9 @@ byte-for-byte; this verifies the final app-controlled file boundary, but tests
 | 62 | Restore 400 archived two-hour transcripts, search/Ask for the final marker under storage throttling | History and Ask show exact completed/total progress, access one archive at a time, find the final source, and terminate visibly at the five-minute safety boundary if storage cannot finish |
 | 63 | Start a 400-meeting backup, Cancel during transcript verification, then Retry | Cancel ends visibly and re-enables Backup; verified archives and inline bodies remain unchanged; Retry produces a complete 400-meeting file |
 | 64 | Restore a large backup while one middle archive write fails or the app is killed | Archiving remains sequential; every verified earlier body stays durable, the failed/not-yet-written body remains complete inline, relaunch retries safely, and no partial meeting replaces current valid content |
+| 65 | Delete a completed meeting while one audio/transcript/vector deletion is injected to fail or stall | History metadata stays visible, the failure ends visibly, Retry is possible, and metadata disappears only after all artifacts report successful deletion |
+| 66 | Run first launch and primary flows with VoiceOver/TalkBack at largest system text, reduced motion, Display Zoom, and 320–430pt widths | Modal/name/current page/forms/statuses are announced; focus order is logical; every primary action remains readable/reachable; no horizontal scroll or hidden Record action; nonessential motion is removed |
+| 67 | Export diagnostics with an injected slow/failing write | Busy state is announced, the operation ends within 60 seconds, failure is visible/retryable, and a success file contains no meeting content |
 
 ## What the app guarantees by design (verified in preview, must be confirmed on device)
 
@@ -142,11 +148,11 @@ byte-for-byte; this verifies the final app-controlled file boundary, but tests
 - A force-quit can lose only the current uncommitted native target segment
   (≤15 s by design). A `.partial` file is never listed as completed. This still
   requires physical kill/relaunch proof before it is treated as guaranteed.
-- v12.25 owns capture in native iOS/Android code rather than only holding a
+- v12.26 owns capture in native iOS/Android code rather than only holding a
   background session; it must still pass the physical lock tests.
 - A deterministic private structured summary works without WebGPU or an API
   key; optional AI can refine it.
-- Uploads are stored as one durable segment. v12.25 native iOS/Android pickers
+- Uploads are stored as one durable segment. v12.26 native iOS/Android pickers
   stream directly to protected storage and process one-minute native units;
   native playback also streams that protected file directly without a complete
   base64 copy in WebView memory;
@@ -158,6 +164,6 @@ byte-for-byte; this verifies the final app-controlled file boundary, but tests
 ## Qualification order
 
 Run tests 1, 6, and 7 first. If any locked/background interval is missing,
-stop and diagnose the v12.25 native recorder/session events before attempting
+stop and diagnose the v12.26 native recorder/session events before attempting
 longer qualification. After it passes, run 3, 4, and 5 in order,
 then interruptions, recovery, low-storage, playback, and the 25-cycle matrix.

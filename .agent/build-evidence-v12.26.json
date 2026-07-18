@@ -1,0 +1,55 @@
+{
+  "capturedAt": "2026-07-18T04:36:08Z",
+  "appVersion": "v12.26",
+  "result": "pass",
+  "change": "Visible failure recovery and release-grade accessibility contracts",
+  "reliabilityChanges": [
+    "Meeting metadata remains visible until audio, transcript, and semantic artifact deletion all succeed; partial and stalled deletion are terminal and retryable.",
+    "Diagnostics export has a visible busy/result state and a 60-second whole-job deadline; clipboard failure is visible; the integrity check has a 15-minute whole-job boundary.",
+    "First launch never automatically starts optional model downloads and explains the deterministic summary and full-text fallback paths.",
+    "External fonts and Vite starter CSS were removed; focus, reduced motion, forced colors, system text scaling, coarse-pointer targets, and critical ARIA semantics are explicit."
+  ],
+  "web": {
+    "tests": { "result": "pass", "passed": 87, "failed": 0 },
+    "newCoverage": [
+      "successful, partial-failure, and stalled meeting artifact deletion",
+      "private local launch without external fonts or starter-theme conflicts",
+      "focus, reduced-motion, forced-color, text-scaling, and coarse-pointer contracts",
+      "modal, navigation, form, progress, status, and alert semantics",
+      "no automatic optional model download on first launch",
+      "diagnostic and integrity whole-job deadlines"
+    ],
+    "lint": "pass",
+    "productionBuild": "pass-with-dependency-and-chunk-size-warnings",
+    "capacitorSync": { "ios": "pass", "android": "pass" },
+    "bundleAsset": "assets/index-CbTYkVi-.js",
+    "bundleBytes": 912896,
+    "stylesheetAsset": "assets/index-Ci6qugrs.css",
+    "stylesheetBytes": 33059,
+    "appVersionPresent": "v12.26"
+  },
+  "ios": {
+    "unsignedSimulatorDebugBuild": "pass",
+    "physicalInstall": "not-attempted-for-v12.26",
+    "deviceAvailabilityCheckedAt": "2026-07-18T04:41:23Z",
+    "knownHostGate": "Xcode lists David's iPhone XIV as a possible destination, but devicectl timed out waiting for CoreDeviceService to initialize; this run proves compilation only."
+  },
+  "android": {
+    "unitTests": "pass",
+    "assembleDebug": "pass",
+    "lintDebug": "pass",
+    "gradleTasks": 371,
+    "javaRuntime": "Android Studio JBR 21",
+    "physicalDevice": "not-attempted-for-v12.26; adb unavailable in this shell",
+    "apk": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 8743317,
+      "sha256": "4d7e96bc9fd6a3f1b22a94afa1dbabcf04e2f48365645f6bbdd230e4583c5775"
+    }
+  },
+  "warnings": [
+    "Production build reports direct eval inside onnxruntime-web, browser externalization notices in the optional Anthropic SDK, an ineffective audioStore dynamic import, and chunks larger than 500 kB.",
+    "These warnings did not fail build, lint, tests, or the rendered integrity workflow; bundle size remains a measured optimization risk."
+  ],
+  "qualificationBoundary": "Build, automated, and rendered-browser proof do not prove locked physical 60/120-minute recording, native saved-audio transcription, interruption/memory-pressure behavior, destination-app receipt, largest system text, VoiceOver/TalkBack, or beta reliability rates."
+}

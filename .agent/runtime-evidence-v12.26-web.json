@@ -1,0 +1,48 @@
+{
+  "capturedAt": "2026-07-18T04:30:04Z",
+  "displayedLocalTime": "7/17/2026, 11:30:04 PM",
+  "appVersion": "v12.26",
+  "platform": "web",
+  "viewport": { "width": 390, "height": 844 },
+  "installedBuildVisible": "Installed build: v12.26 · web",
+  "criticalFlow": {
+    "result": "pass",
+    "primaryNavigationAccessibleName": "Primary navigation",
+    "currentNavigationCount": 1,
+    "horizontalOverflow": false,
+    "historyUnlabelledVisibleInputs": 0,
+    "settingsCriticalInputsNamed": true,
+    "askInputName": "Ask a question across saved meetings",
+    "mobilePrimaryControlsMinimumPixels": 44,
+    "coarsePointerContractPixels": 48,
+    "keyboardFocus": {
+      "result": "pass",
+      "outline": "rgb(253, 230, 138) solid 3px",
+      "outlineOffset": "2.5px"
+    },
+    "externalStylesheets": 0,
+    "optionalModelAutoDownload": false
+  },
+  "diagnosticsExport": {
+    "result": "pass",
+    "visibleStatus": "Privacy-safe diagnostics exported. Meeting titles and content were excluded."
+  },
+  "integrityCheck": {
+    "result": "pass",
+    "passed": 8,
+    "failed": 0,
+    "steps": [
+      { "name": "Production saved-audio playback boundary", "detail": "Bounded object URL decoded as 0.300s audio." },
+      { "name": "Metadata-loss audio recovery", "detail": "Verified orphan scan found segment 0 and all 9644 audio bytes without History metadata." },
+      { "name": "Transcript archive and hydration", "detail": "174104 characters restored byte-for-byte with a matching whole-body fingerprint." },
+      { "name": "Whole-meeting private summary", "detail": "Decision and final action markers survived deterministic summarization." },
+      { "name": "Cross-conversation full-text search", "detail": "Exact marker returned from The Meeting Integrity Sentence." },
+      { "name": "Complete Markdown artifact", "detail": "174821 characters include the complete final transcript byte." },
+      { "name": "Complete paginated PDF artifact", "detail": "44 pages, 362438 bytes; final transcript marker present." },
+      { "name": "Synthetic artifact cleanup", "detail": "Temporary audio, transcript, and native export artifacts were removed; History was never modified." }
+    ]
+  },
+  "browserWarningOrErrorLogs": [],
+  "safetyNote": "Ask was not executed because the local browser profile could contain a user-supplied cloud key; automated and prior rendered lexical-search evidence cover the local path without risking transcript transmission.",
+  "qualificationBoundary": "This proves the v12.26 browser rendering, accessibility contract, visible diagnostics terminal state, and the complete synthetic intelligence pipeline. It does not prove physical recording/transcription, native suspension or memory pressure, receiving-app share receipt, VoiceOver/TalkBack, or largest-system-text behavior."
+}
